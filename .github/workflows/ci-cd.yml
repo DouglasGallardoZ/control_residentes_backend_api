@@ -1,0 +1,214 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+        cache: 'pip'
+
+    - name: Instalar dependencias
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio pytest-cov flake8 black isort pylint mypy
+
+    - name: Verificar formato (Black)
+      run: black --check app
+
+    - name: Verificar imports (isort)
+      run: isort --check-only app
+
+    - name: Linting (Flake8)
+      run: flake8 app --count --select=E9,F63,F7,F82 --show-source --statistics
+
+    - name: Type checking (Mypy)
+      run: mypy app || true
+
+    - name: Ejecutar tests
+      env:
+        DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
+        REDIS_URL: redis://localhost:6379
+        ENVIRONMENT: testing
+        DEBUG: "False"
+      run: pytest tests/ -v --cov=app --cov-report=xml --cov-report=html
+
+    - name: Subir reporte de cobertura
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+
+    - name: Configurar Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extraer metadata
+      id: meta
+      uses: docker/metadata-action@v4
+      with:
+        images: |
+          ${{ secrets.DOCKER_USERNAME }}/residencial-api
+        tags: |
+          type=ref,event=branch
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha
+
+    - name: Build y push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/residencial-api:buildcache
+        cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/residencial-api:buildcache,mode=max
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+
+    - name: Deploy a producción
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.PROD_HOST }}
+        username: ${{ secrets.PROD_USER }}
+        key: ${{ secrets.PROD_SSH_KEY }}
+        script: |
+          cd /home/app/backend-api
+          git pull origin main
+          docker-compose -f docker-compose.prod.yml pull
+          docker-compose -f docker-compose.prod.yml up -d
+          docker-compose -f docker-compose.prod.yml exec -T backend alembic upgrade head
+          echo "Deployment completado"
+
+    - name: Notificar deploy exitoso
+      uses: 8398a7/action-slack@v3
+      if: success()
+      with:
+        status: custom
+        custom_payload: |
+          {
+            text: '✅ Deployment a producción completado',
+            blocks: [
+              {
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: `*Deployment a Producción* ✅\n*Rama:* ${process.env.AS_REF}\n*Commit:* <${process.env.AS_COMMIT_URL}|${process.env.AS_COMMIT}>`
+                }
+              }
+            ]
+          }
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+    - name: Notificar error en deploy
+      uses: 8398a7/action-slack@v3
+      if: failure()
+      with:
+        status: custom
+        custom_payload: |
+          {
+            text: '❌ Error en deployment',
+            blocks: [
+              {
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: `*Error en Deployment* ❌\n*Rama:* ${process.env.AS_REF}\n*Commit:* <${process.env.AS_COMMIT_URL}|${process.env.AS_COMMIT}>`
+                }
+              }
+            ]
+          }
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Instalar herramientas de seguridad
+      run: |
+        pip install bandit safety
+
+    - name: Bandit - Análisis de seguridad
+      run: bandit -r app -f json -o bandit-report.json || true
+
+    - name: Safety - Vulnerabilidades en dependencias
+      run: safety check --json || true
+
+    - name: Upload seguridad reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-reports
+        path: bandit-report.json

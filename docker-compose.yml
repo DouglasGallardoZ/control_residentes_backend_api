@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # PostgreSQL - Base de datos principal
+  postgres:
+    image: postgres:15-alpine
+    container_name: residencial-postgres
+    environment:
+      POSTGRES_USER: residencial_user
+      POSTGRES_PASSWORD: residencial_password
+      POSTGRES_DB: residencial_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./esquema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    networks:
+      - residencial-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U residencial_user -d residencial_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PgAdmin - Herramienta para administrar PostgreSQL
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: residencial-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@residencial.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - residencial-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: residencial-backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      DATABASE_URL: postgresql://residencial_user:residencial_password@postgres:5432/residencial_db
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CREDENTIALS_PATH: ./firebase-credentials.json
+      FIREBASE_API_KEY: ${FIREBASE_API_KEY}
+      FCM_SENDER_ID: ${FCM_SENDER_ID}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      BIOMETRIA_SERVICE_URL: http://biometria:8001
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - residencial-network
+
+  # Firestore Emulator (para desarrollo)
+  firestore:
+    image: google/cloud-firestore-emulator:latest
+    container_name: residencial-firestore
+    ports:
+      - "8080:8080"
+    environment:
+      FIRESTORE_EMULATOR_HOST: 0.0.0.0:8080
+    networks:
+      - residencial-network
+
+  # Redis - Caché (opcional, para futuro)
+  redis:
+    image: redis:7-alpine
+    container_name: residencial-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - residencial-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  residencial-network:
+    driver: bridge

@@ -1,0 +1,321 @@
+from pydantic import BaseModel, Field, EmailStr
+from typing import Optional, List
+from datetime import datetime, date
+
+
+# ============ PERSONA ============
+class PersonaBase(BaseModel):
+    identificacion: str
+    tipo_identificacion: str
+    nombres: str
+    apellidos: str
+    fecha_nacimiento: date
+    nacionalidad: str = "Ecuador"
+    correo: Optional[EmailStr] = None
+    celular: Optional[str] = None
+    direccion_alternativa: Optional[str] = None
+
+
+class PersonaCreate(PersonaBase):
+    usuario_creado: str
+
+
+class PersonaUpdate(BaseModel):
+    correo: Optional[EmailStr] = None
+    celular: Optional[str] = None
+    direccion_alternativa: Optional[str] = None
+    usuario_actualizado: str
+
+
+class PersonaResponse(PersonaBase):
+    id: int
+    estado: str
+    eliminado: bool
+    fecha_creado: datetime
+    fecha_actualizado: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============ VIVIENDA ============
+class ViviendaBase(BaseModel):
+    manzana: str
+    villa: str
+
+
+class ViviendaCreate(ViviendaBase):
+    usuario_creado: str
+
+
+class ViviendaResponse(ViviendaBase):
+    id: int
+    estado: str
+    fecha_creado: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============ PROPIETARIO ============
+class PropietarioCreate(PersonaBase):
+    manzana: str
+    villa: str
+    usuario_creado: str
+    documento_propiedad_url: str
+    fotos_rostro: List[str]  # URLs de fotos
+
+
+class PropietarioResponse(PersonaResponse):
+    vivienda_id: int
+    estado: str
+
+
+class ConyugeCreate(PersonaBase):
+    propietario_id: int
+    usuario_creado: str
+    foto_rostro: str
+
+
+# ============ RESIDENTE ============
+class ResidenteCreate(PersonaBase):
+    vivienda_id: int
+    usuario_creado: str
+    doc_autorizacion_pdf: str
+
+
+class ResidenteUpdate(BaseModel):
+    usuario_actualizado: str
+
+
+class ResidenteResponse(PersonaResponse):
+    vivienda_id: int
+    estado: str
+    doc_autorizacion_pdf: Optional[str] = None
+
+
+class ResidenteDesactivar(BaseModel):
+    motivo: str
+    usuario_actualizado: str
+
+
+class ResidenteReactivar(BaseModel):
+    motivo: str
+    usuario_actualizado: str
+
+
+# ============ MIEMBRO DE FAMILIA ============
+class MiembroFamiliaCreate(PersonaBase):
+    vivienda_id: int
+    residente_id: int
+    parentesco: str
+    parentesco_otro_desc: Optional[str] = None
+    usuario_creado: str
+    foto_rostro: str
+
+
+class MiembroFamiliaResponse(PersonaResponse):
+    vivienda_id: int
+    residente_id: int
+    parentesco: str
+    parentesco_otro_desc: Optional[str] = None
+    estado: str
+
+
+# ============ CUENTA ============
+class CuentaCreate(BaseModel):
+    persona_id: int
+    username: str
+    password: str
+    usuario_creado: str
+
+
+class CuentaResponse(BaseModel):
+    id: int
+    persona_id: int
+    username: str
+    estado: str
+    fecha_creado: datetime
+    ultimo_login: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CuentaBloquear(BaseModel):
+    motivo: str
+    usuario_actualizado: str
+
+
+class CuentaDesbloquear(BaseModel):
+    motivo: str
+    usuario_actualizado: str
+
+
+class CuentaEliminar(BaseModel):
+    motivo: str
+    usuario_actualizado: str
+
+
+# ============ QR ============
+class QRGenerarPropio(BaseModel):
+    duracion_horas: int = Field(..., gt=0)
+    fecha_acceso: date
+    hora_inicio: str  # HH:MM
+
+
+class QRGenerarVisita(BaseModel):
+    visita_identificacion: str
+    visita_nombres: str
+    visita_apellidos: str
+    motivo_visita: str
+    duracion_horas: int = Field(..., gt=0)
+    fecha_acceso: date
+    hora_inicio: str  # HH:MM
+
+
+class QRResponse(BaseModel):
+    id: int
+    token: str
+    hora_inicio_vigencia: datetime
+    hora_fin_vigencia: datetime
+    estado: str
+    fecha_creado: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class QRListResponse(BaseModel):
+    """Response para listar QRs de una cuenta"""
+    qr_pk: int
+    token: str
+    estado: str
+    tipo_ingreso: str  # "propio" o "visita"
+    hora_inicio_vigencia: datetime
+    hora_fin_vigencia: datetime
+    fecha_creado: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============ ACCESO ============
+class AccesoValidarRequest(BaseModel):
+    token_qr: Optional[str] = None
+    tipo_acceso: str
+
+
+class AccesoResponse(BaseModel):
+    id: int
+    tipo: str
+    vivienda_id: int
+    resultado: str
+    fecha_creado: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AccesoManualRequest(BaseModel):
+    visitante_identificacion: str
+    visitante_nombres: str
+    visitante_apellidos: str
+    manzana: str
+    villa: str
+    motivo: str
+    placa: Optional[str] = None
+    autorizado: bool
+    usuario_guardia: str
+
+
+class AccesoAutomaticoPeatonalRequest(BaseModel):
+    visitante_identificacion: str
+    visitante_nombres: str
+    visitante_apellidos: str
+    manzana: str
+    villa: str
+    motivo: str
+    foto_rostro: str  # URL o base64
+
+
+class AccesoSalidaVisitanteRequest(BaseModel):
+    visitante_identificacion: str
+    manzana: str
+    villa: str
+    observacion: Optional[str] = None
+    usuario_guardia: str
+
+
+# ============ NOTIFICACIÓN ============
+class NotificacionMasivaResidentes(BaseModel):
+    mensaje: str
+    tipo: str
+    usuario_emisor: str
+
+
+class NotificacionMasivaPropietarios(BaseModel):
+    mensaje: str
+    tipo: str
+    usuario_emisor: str
+
+
+class NotificacionIndividualResidente(BaseModel):
+    persona_id: int
+    mensaje: str
+    tipo: str
+    usuario_emisor: str
+
+
+class NotificacionIndividualPropietario(BaseModel):
+    persona_id: int
+    mensaje: str
+    tipo: str
+    usuario_emisor: str
+
+
+class NotificacionResponse(BaseModel):
+    id: int
+    tipo: str
+    mensaje: str
+    fecha_creado: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============ AUTENTICACIÓN ============
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str
+    usuario_id: int
+    username: str
+
+
+class FirebaseLoginRequest(BaseModel):
+    id_token: str
+
+
+# ============ AUTORIZACIÓN DE CÓDIGO ============
+class SolicitudAutorizacionCodigoRequest(BaseModel):
+    persona_miembro_id: int
+    residente_id: int
+
+
+class AceptarSolicitudCodigoRequest(BaseModel):
+    solicitud_id: int
+    usuario: str
+
+
+class RechazarSolicitudCodigoRequest(BaseModel):
+    solicitud_id: int
+    usuario: str
+
+
+class UtilizarCodigoAutorizacionRequest(BaseModel):
+    codigo: str
