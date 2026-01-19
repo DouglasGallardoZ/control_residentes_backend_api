@@ -200,6 +200,19 @@ class QRListResponse(BaseModel):
         from_attributes = True
 
 
+class QRPaginatedResponse(BaseModel):
+    """Response paginada para listar QRs de una cuenta"""
+    data: list[QRListResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    has_next: bool
+
+    class Config:
+        from_attributes = True
+
+
 # ============ ACCESO ============
 class AccesoValidarRequest(BaseModel):
     token_qr: Optional[str] = None

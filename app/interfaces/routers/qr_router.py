@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.infrastructure.db import get_db, SessionLocal
 from app.interfaces.schemas.schemas import (
-    QRGenerarPropio, QRGenerarVisita, QRResponse, AccesoValidarRequest, QRListResponse
+    QRGenerarPropio, QRGenerarVisita, QRResponse, AccesoValidarRequest, QRListResponse, QRPaginatedResponse
 )
 from app.infrastructure.db.models import QR as QRModel, Cuenta, Acceso as AccesoModel, ResidenteVivienda, Persona, Visita as VisitaModel
 from datetime import datetime, timedelta, date
@@ -229,17 +229,30 @@ def obtener_qr(qr_id: int, db: Session = Depends(get_db)):
     return qr
 
 
-@router.get("/mi-cuenta/generados", response_model=list[QRListResponse])
+@router.get("/cuenta/generados", response_model=QRPaginatedResponse)
 def listar_qr_por_cuenta(
     usuario_id: int,
+    page: int = 1,
+    page_size: int = 10,
     db: Session = Depends(get_db)
 ):
     """
-    Lista todos los QRs generados por la cuenta del usuario autenticado
-    Retorna: token, estado, tipo de ingreso, fechas de vigencia
+    Lista QRs generados por la cuenta del usuario autenticado (paginado)
+    Parámetros:
+    - page: número de página (default 1)
+    - page_size: cantidad de items por página (default 10, máximo 100)
+    Retorna: datos paginados con token, estado, tipo de ingreso, fechas de vigencia
     RF-Q03
     """
     try:
+        # Validar parámetros de paginación
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 10
+        if page_size > 100:
+            page_size = 100  # Máximo 100 items por página
+        
         # Obtener cuenta del usuario
         cuenta = db.query(Cuenta).filter(Cuenta.persona_titular_fk == usuario_id).first()
         if not cuenta:
@@ -248,26 +261,43 @@ def listar_qr_por_cuenta(
                 detail="Usuario no autorizado"
             )
         
-        # Obtener todos los QRs generados por esta cuenta
+        # Obtener total de QRs de la cuenta
+        total = db.query(QRModel).filter(
+            QRModel.cuenta_autoriza_fk == cuenta.cuenta_pk
+        ).count()
+        
+        # Calcular offset y total de páginas
+        offset = (page - 1) * page_size
+        total_pages = (total + page_size - 1) // page_size
+        has_next = page < total_pages
+        
+        # Obtener QRs paginados
         qrs = db.query(QRModel).filter(
             QRModel.cuenta_autoriza_fk == cuenta.cuenta_pk
-        ).order_by(QRModel.fecha_creado.desc()).all()
+        ).order_by(QRModel.fecha_creado.desc()).offset(offset).limit(page_size).all()
         
         # Transformar QRs para incluir tipo de ingreso
-        resultado = []
+        data = []
         for qr in qrs:
             tipo_ingreso = "visita" if qr.visita_ingreso_fk is not None else "propio"
-            resultado.append({
-                "qr_pk": qr.qr_pk,
-                "token": qr.token,
-                "estado": qr.estado,
-                "tipo_ingreso": tipo_ingreso,
-                "hora_inicio_vigencia": qr.hora_inicio_vigencia,
-                "hora_fin_vigencia": qr.hora_fin_vigencia,
-                "fecha_creado": qr.fecha_creado
-            })
+            data.append(QRListResponse(
+                qr_pk=qr.qr_pk,
+                token=qr.token,
+                estado=qr.estado,
+                tipo_ingreso=tipo_ingreso,
+                hora_inicio_vigencia=qr.hora_inicio_vigencia,
+                hora_fin_vigencia=qr.hora_fin_vigencia,
+                fecha_creado=qr.fecha_creado
+            ))
         
-        return resultado
+        return QRPaginatedResponse(
+            data=data,
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+            has_next=has_next
+        )
     
     except HTTPException:
         raise
