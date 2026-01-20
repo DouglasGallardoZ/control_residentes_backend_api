@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     API_TITLE: str = "API Control de Acceso Residencial"
     API_DESCRIPTION: str = "Backend para sistema de control de acceso y gestión de residentes"
     
+    # Zona Horaria (configurable por ambiente)
+    # Ejemplos: 'America/Bogota', 'America/Quito', 'America/Lima', 'UTC', etc.
+    # Lista completa: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+    TIMEZONE: str = "America/Bogota"  # UTC-5 (Colombia, Quito)
+    
     # Seguridad
     CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8080"]
     

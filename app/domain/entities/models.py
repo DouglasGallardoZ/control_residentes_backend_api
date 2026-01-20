@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, date
 from typing import Optional, List
 from enum import Enum
+from app.infrastructure.utils.time_utils import ahora_sin_tz
 
 
 class EstadoEnum(str, Enum):
@@ -138,12 +139,12 @@ class QR:
     def es_vigente(self) -> bool:
         return (
             self.estado == EstadoQREnum.VIGENTE
-            and datetime.utcnow() < self.hora_fin_vigencia
+            and ahora_sin_tz() < self.hora_fin_vigencia
             and not self.eliminado
         )
 
     def ha_expirado(self) -> bool:
-        return datetime.utcnow() >= self.hora_fin_vigencia
+        return ahora_sin_tz() >= self.hora_fin_vigencia
 
 
 @dataclass

@@ -4,6 +4,8 @@ import firebase_admin
 from firebase_admin import auth as firebase_auth
 from app.config import get_settings
 from typing import Optional, Dict
+from datetime import timedelta
+from app.infrastructure.utils.time_utils import ahora_sin_tz
 
 settings = get_settings()
 security = HTTPBearer()
@@ -73,9 +75,9 @@ class JWTHandler:
         to_encode = data.copy()
         
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = ahora_sin_tz() + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(hours=settings.JWT_EXPIRATION_HOURS)
+            expire = ahora_sin_tz() + timedelta(hours=settings.JWT_EXPIRATION_HOURS)
         
         to_encode.update({"exp": expire})
         

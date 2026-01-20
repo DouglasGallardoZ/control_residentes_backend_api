@@ -6,6 +6,7 @@ from app.interfaces.schemas.schemas import (
 )
 from app.infrastructure.db.models import Persona, PropietarioVivienda, ResidenteVivienda, Vivienda
 from datetime import datetime
+from app.infrastructure.utils.time_utils import ahora_sin_tz
 
 router = APIRouter(prefix="/api/v1/propietarios", tags=["Propietarios"])
 
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/api/v1/propietarios", tags=["Propietarios"])
 def registrar_propietario(
     persona_data: PersonaCreate,
     vivienda_id: int,
-    usuario_creado: str = "api_user",
+    usuario_creado: str,
     db: Session = Depends(get_db)
 ):
     """
@@ -100,7 +101,7 @@ def registrar_propietario(
 def registrar_conyuge_propietario(
     propietario_id: int,
     persona_data: PersonaCreate,
-    usuario_creado: str = "api_user",
+    usuario_creado: str,
     db: Session = Depends(get_db)
 ):
     """
@@ -245,7 +246,7 @@ def eliminar_propietario(
         
         propietario.eliminado = True
         propietario.motivo_eliminado = motivo_eliminado
-        propietario.fecha_actualizado = datetime.utcnow()
+        propietario.fecha_actualizado = ahora_sin_tz()
         propietario.usuario_actualizado = usuario_actualizado
         
         db.commit()

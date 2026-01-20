@@ -8,6 +8,7 @@ from app.infrastructure.db.models import (
 )
 from app.infrastructure.firestore.client import get_firestore_client
 from app.infrastructure.notifications.fcm_client import get_fcm_client
+from app.infrastructure.utils.time_utils import ahora_sin_tz
 
 
 class QRService:
@@ -62,7 +63,7 @@ class QRService:
                 "hora_inicio": hora_inicio.isoformat(),
                 "hora_fin": hora_fin.isoformat(),
                 "estado": "vigente",
-                "creado_en": datetime.utcnow().isoformat()
+                "creado_en": ahora_sin_tz().isoformat()
             }
         )
         

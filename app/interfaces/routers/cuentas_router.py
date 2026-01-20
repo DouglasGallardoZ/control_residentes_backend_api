@@ -4,6 +4,7 @@ from app.infrastructure.db import get_db
 from app.infrastructure.db.models import Cuenta, Persona, MiembroVivienda, EventoCuenta, ResidenteVivienda
 from datetime import datetime
 from pydantic import BaseModel
+from app.infrastructure.utils.time_utils import ahora_sin_tz
 
 router = APIRouter(prefix="/api/v1/cuentas", tags=["Cuentas"])
 
@@ -173,9 +174,10 @@ def crear_cuenta_miembro_familia_firebase(
         # Crear cuenta
         cuenta = Cuenta(
             persona_titular_fk=request.persona_id,
+            username=request.username,
             firebase_uid=request.firebase_uid,
             estado="activo",
-            usuario_creado=request.firebase_uid
+            usuario_creado=request.usuario_creado
         )
         
         db.add(cuenta)
@@ -184,8 +186,8 @@ def crear_cuenta_miembro_familia_firebase(
         # Registrar evento
         evento = EventoCuenta(
             cuenta_afectada_fk=cuenta.cuenta_pk,
-            tipo_evento="cuenta_creada_miembro",
-            usuario_creado=request.firebase_uid
+            tipo_evento="cuenta_creada",
+            usuario_creado=request.usuario_creado
         )
         db.add(evento)
         
@@ -213,8 +215,8 @@ def crear_cuenta_miembro_familia_firebase(
 @router.post("/{cuenta_id}/bloquear", response_model=dict)
 def bloquear_cuenta(
     cuenta_id: int,
-    motivo: str = "Cuenta bloqueada por administrador",
-    usuario_actualizado: str = "admin",
+    usuario_actualizado: str,
+    motivo: str = "Cuenta bloqueada",
     db: Session = Depends(get_db)
 ):
     """
@@ -237,7 +239,7 @@ def bloquear_cuenta(
         
         # Bloquear cuenta
         cuenta.estado = "inactivo"
-        cuenta.fecha_actualizado = datetime.utcnow()
+        cuenta.fecha_actualizado = ahora_sin_tz()
         cuenta.usuario_actualizado = usuario_actualizado
         
         # Registrar evento
@@ -269,8 +271,8 @@ def bloquear_cuenta(
 @router.post("/{cuenta_id}/desbloquear", response_model=dict)
 def desbloquear_cuenta(
     cuenta_id: int,
-    motivo: str = "Cuenta desbloqueada por administrador",
-    usuario_actualizado: str = "admin",
+    usuario_actualizado: str,
+    motivo: str = "Cuenta desbloqueada",
     db: Session = Depends(get_db)
 ):
     """
@@ -293,7 +295,7 @@ def desbloquear_cuenta(
         
         # Desbloquear cuenta
         cuenta.estado = "activo"
-        cuenta.fecha_actualizado = datetime.utcnow()
+        cuenta.fecha_actualizado = ahora_sin_tz()
         cuenta.usuario_actualizado = usuario_actualizado
         
         # Registrar evento
@@ -325,8 +327,8 @@ def desbloquear_cuenta(
 @router.delete("/{cuenta_id}", response_model=dict)
 def eliminar_cuenta(
     cuenta_id: int,
-    motivo: str = "Cuenta eliminada por usuario",
-    usuario_actualizado: str = "admin",
+    usuario_actualizado: str,
+    motivo: str = "Cuenta eliminada",
     db: Session = Depends(get_db)
 ):
     """
@@ -350,7 +352,7 @@ def eliminar_cuenta(
         # Marcar como eliminado (soft delete)
         cuenta.eliminado = True
         cuenta.motivo_eliminado = motivo
-        cuenta.fecha_actualizado = datetime.utcnow()
+        cuenta.fecha_actualizado = ahora_sin_tz()
         cuenta.usuario_actualizado = usuario_actualizado
         
         # Registrar evento

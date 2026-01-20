@@ -4,6 +4,7 @@ from app.infrastructure.db import get_db
 from app.interfaces.schemas.schemas import PersonaCreate
 from app.infrastructure.db.models import Persona, ResidenteVivienda, MiembroVivienda, Vivienda
 from datetime import datetime
+from app.infrastructure.utils.time_utils import ahora_sin_tz
 
 router = APIRouter(prefix="/api/v1/miembros", tags=["Miembros de Familia"])
 
@@ -14,8 +15,8 @@ def agregar_miembro_familia(
     vivienda_id: int,
     persona_data: PersonaCreate,
     parentesco: str,
+    usuario_creado: str,
     parentesco_otro_desc: str = None,
-    usuario_creado: str = "api_user",
     db: Session = Depends(get_db)
 ):
     """
@@ -188,7 +189,7 @@ def desactivar_miembro(
             )
         
         miembro.estado = "inactivo"
-        miembro.fecha_actualizado = datetime.utcnow()
+        miembro.fecha_actualizado = ahora_sin_tz()
         miembro.usuario_actualizado = usuario_actualizado
         
         db.commit()
@@ -230,7 +231,7 @@ def reactivar_miembro(
             )
         
         miembro.estado = "activo"
-        miembro.fecha_actualizado = datetime.utcnow()
+        miembro.fecha_actualizado = ahora_sin_tz()
         miembro.usuario_actualizado = usuario_actualizado
         
         db.commit()
@@ -273,7 +274,7 @@ def eliminar_miembro(
         
         miembro.eliminado = True
         miembro.motivo_eliminado = motivo_eliminado
-        miembro.fecha_actualizado = datetime.utcnow()
+        miembro.fecha_actualizado = ahora_sin_tz()
         miembro.usuario_actualizado = usuario_actualizado
         
         db.commit()

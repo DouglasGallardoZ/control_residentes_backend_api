@@ -5,7 +5,8 @@ from app.interfaces.schemas.schemas import (
     QRGenerarPropio, QRGenerarVisita, QRResponse, AccesoValidarRequest, QRListResponse, QRPaginatedResponse
 )
 from app.infrastructure.db.models import QR as QRModel, Cuenta, Acceso as AccesoModel, ResidenteVivienda, Persona, Visita as VisitaModel
-from datetime import datetime, timedelta, date
+from datetime import datetime
+from app.infrastructure.utils.time_utils import ahora_sin_tz, timedelta
 import secrets
 import string
 
@@ -42,7 +43,7 @@ def generar_qr_propio(
         fecha_acceso = request.fecha_acceso
         dt_inicio = datetime.combine(fecha_acceso, hora_inicio)
         
-        if dt_inicio <= datetime.utcnow():
+        if dt_inicio <= ahora_sin_tz():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="La fecha y hora deben ser futuras"
@@ -80,7 +81,7 @@ def generar_qr_propio(
             hora_fin_vigencia=hora_fin,
             token=token,
             estado="vigente",
-            usuario_creado="sistema"
+            usuario_creado=request.usuario_creado
         )
         
         db.add(qr)
@@ -137,7 +138,7 @@ def generar_qr_visita(
         fecha_acceso = request.fecha_acceso
         dt_inicio = datetime.combine(fecha_acceso, hora_inicio)
         
-        if dt_inicio <= datetime.utcnow():
+        if dt_inicio <= ahora_sin_tz():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="La fecha y hora deben ser futuras"
@@ -169,7 +170,7 @@ def generar_qr_visita(
             identificacion=request.visita_identificacion,
             nombres=request.visita_nombres,
             apellidos=request.visita_apellidos,
-            usuario_creado="sistema"
+            usuario_creado=request.usuario_creado
         )
         
         db.add(visita)
@@ -189,7 +190,7 @@ def generar_qr_visita(
             hora_fin_vigencia=hora_fin,
             token=token,
             estado="vigente",
-            usuario_creado="sistema"
+            usuario_creado=request.usuario_creado
         )
         
         db.add(qr)
@@ -234,6 +235,7 @@ def listar_qr_por_cuenta(
     usuario_id: int,
     page: int = 1,
     page_size: int = 10,
+    tipo_ingreso: str = None,  # "propio", "visita", o None para todos
     db: Session = Depends(get_db)
 ):
     """
@@ -241,6 +243,7 @@ def listar_qr_por_cuenta(
     Parámetros:
     - page: número de página (default 1)
     - page_size: cantidad de items por página (default 10, máximo 100)
+    - tipo_ingreso: filtrar por tipo ("propio", "visita", o None para todos)
     Retorna: datos paginados con token, estado, tipo de ingreso, fechas de vigencia
     RF-Q03
     """
@@ -253,6 +256,13 @@ def listar_qr_por_cuenta(
         if page_size > 100:
             page_size = 100  # Máximo 100 items por página
         
+        # Validar tipo_ingreso
+        if tipo_ingreso and tipo_ingreso not in ["propio", "visita"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="tipo_ingreso debe ser 'propio', 'visita' o vacío"
+            )
+        
         # Obtener cuenta del usuario
         cuenta = db.query(Cuenta).filter(Cuenta.persona_titular_fk == usuario_id).first()
         if not cuenta:
@@ -261,30 +271,37 @@ def listar_qr_por_cuenta(
                 detail="Usuario no autorizado"
             )
         
-        # Obtener total de QRs de la cuenta
-        total = db.query(QRModel).filter(
+        # Construir query base
+        query_base = db.query(QRModel).filter(
             QRModel.cuenta_autoriza_fk == cuenta.cuenta_pk
-        ).count()
+        )
+        
+        # Aplicar filtro de tipo_ingreso si se proporciona
+        if tipo_ingreso == "propio":
+            query_base = query_base.filter(QRModel.visita_ingreso_fk == None)
+        elif tipo_ingreso == "visita":
+            query_base = query_base.filter(QRModel.visita_ingreso_fk != None)
+        
+        # Obtener total de QRs con filtro aplicado
+        total = query_base.count()
         
         # Calcular offset y total de páginas
         offset = (page - 1) * page_size
         total_pages = (total + page_size - 1) // page_size
         has_next = page < total_pages
         
-        # Obtener QRs paginados
-        qrs = db.query(QRModel).filter(
-            QRModel.cuenta_autoriza_fk == cuenta.cuenta_pk
-        ).order_by(QRModel.fecha_creado.desc()).offset(offset).limit(page_size).all()
+        # Obtener QRs paginados con filtro
+        qrs = query_base.order_by(QRModel.fecha_creado.desc()).offset(offset).limit(page_size).all()
         
         # Transformar QRs para incluir tipo de ingreso
         data = []
         for qr in qrs:
-            tipo_ingreso = "visita" if qr.visita_ingreso_fk is not None else "propio"
+            tipo_ingreso_calc = "visita" if qr.visita_ingreso_fk is not None else "propio"
             data.append(QRListResponse(
                 qr_pk=qr.qr_pk,
                 token=qr.token,
                 estado=qr.estado,
-                tipo_ingreso=tipo_ingreso,
+                tipo_ingreso=tipo_ingreso_calc,
                 hora_inicio_vigencia=qr.hora_inicio_vigencia,
                 hora_fin_vigencia=qr.hora_fin_vigencia,
                 fecha_creado=qr.fecha_creado

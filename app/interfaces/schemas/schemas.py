@@ -99,6 +99,13 @@ class ResidenteDesactivar(BaseModel):
     usuario_actualizado: str
 
 
+class AgregarFotoRequest(BaseModel):
+    """Schema para agregar foto a residente"""
+    ruta_imagen: str
+    formato: str
+    usuario_creado: str
+
+
 class ResidenteReactivar(BaseModel):
     motivo: str
     usuario_actualizado: str
@@ -162,6 +169,7 @@ class QRGenerarPropio(BaseModel):
     duracion_horas: int = Field(..., gt=0)
     fecha_acceso: date
     hora_inicio: str  # HH:MM
+    usuario_creado: str
 
 
 class QRGenerarVisita(BaseModel):
@@ -172,6 +180,7 @@ class QRGenerarVisita(BaseModel):
     duracion_horas: int = Field(..., gt=0)
     fecha_acceso: date
     hora_inicio: str  # HH:MM
+    usuario_creado: str
 
 
 class QRResponse(BaseModel):

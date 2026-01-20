@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.infrastructure.db import get_db
 from app.interfaces.schemas.schemas import (
-    ResidenteCreate, ResidenteResponse, ResidenteDesactivar, ResidenteReactivar
+    ResidenteCreate, ResidenteResponse, ResidenteDesactivar, ResidenteReactivar, AgregarFotoRequest
 )
 from app.infrastructure.db.models import Persona, ResidenteVivienda, Vivienda
 from datetime import datetime
+from app.infrastructure.utils.time_utils import ahora_sin_tz
 
 router = APIRouter(prefix="/api/v1/residentes", tags=["Residentes"])
 
@@ -116,7 +117,7 @@ def desactivar_residente(
         # Desactivar residente
         residente.estado = "inactivo"
         residente.motivo = request.motivo
-        residente.fecha_actualizado = datetime.utcnow()
+        residente.fecha_actualizado = ahora_sin_tz()
         residente.usuario_actualizado = request.usuario_actualizado
         
         # TODO: Desactivar automáticamente miembros de familia asociados
@@ -168,7 +169,7 @@ def reactivar_residente(
         # Reactivar residente
         residente.estado = "activo"
         residente.fecha_hasta = None
-        residente.fecha_actualizado = datetime.utcnow()
+        residente.fecha_actualizado = ahora_sin_tz()
         residente.usuario_actualizado = request.usuario_actualizado
         
         db.commit()
@@ -191,8 +192,7 @@ def reactivar_residente(
 @router.post("/{persona_id}/foto", response_model=dict)
 def agregar_foto_residente(
     persona_id: int,
-    ruta_imagen: str,
-    formato: str,
+    request: AgregarFotoRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -223,9 +223,9 @@ def agregar_foto_residente(
         # Crear foto
         foto = PersonaFoto(
             persona_titular_fk=persona_id,
-            ruta_imagen=ruta_imagen,
-            formato=formato,
-            usuario_creado="api_user"
+            ruta_imagen=request.ruta_imagen,
+            formato=request.formato,
+            usuario_creado=request.usuario_creado
         )
         
         db.add(foto)
