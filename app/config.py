@@ -39,6 +39,44 @@ class Settings(BaseSettings):
     # Lista completa: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
     TIMEZONE: str = "America/Bogota"  # UTC-5 (Colombia, Quito)
     
+    # ========== PAGINACIÓN ==========
+    # Valores por defecto y límites para endpoints que retornan listas
+    PAGINATION_DEFAULT_PAGE: int = 1
+    PAGINATION_DEFAULT_PAGE_SIZE: int = 10
+    PAGINATION_MAX_PAGE_SIZE: int = 100
+    
+    # ========== SEGURIDAD - CONTRASEÑAS ==========
+    # Política de validación de contraseñas (CV-20)
+    PASSWORD_MIN_LENGTH: int = 8
+    PASSWORD_MAX_BYTES: int = 72  # Límite de bcrypt/UTF-8
+    PASSWORD_SPECIAL_CHARS: str = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+    PASSWORD_MUST_HAVE_UPPER: bool = True
+    PASSWORD_MUST_HAVE_DIGIT: bool = True
+    PASSWORD_MUST_HAVE_SPECIAL: bool = False
+    
+    # ========== SEGURIDAD - BIOMETRÍA ==========
+    # Límites para intentos fallidos
+    MAX_BIOMETRIC_FAILED_ATTEMPTS: int = 2  # RF-AQ02
+    PHONE_RESPONSE_TIMEOUT_SECONDS: int = 30  # Tiempo máximo espera telefónica
+    
+    # ========== CÓDIGOS QR ==========
+    QR_TOKEN_LENGTH: int = 32  # Caracteres del token
+    QR_CODE_VALIDITY_MINUTES: int = 3  # Validez de código QR (RF-AQ01)
+    
+    # ========== LONGITUDES DE CAMPOS ==========
+    # Límites de longitud para campos de base de datos
+    # Requerimientos de datos: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+    FIELD_LENGTHS: dict = {
+        'identification': 20,      # CV-01: Identificación (10 dígitos, 20 chars)
+        'phone': 15,               # CV-06: Celular (10 dígitos, 15 chars)
+        'email': 100,              # CV-07: Correo electrónico
+        'address': 120,            # CV-08: Dirección alternativa
+        'username': 50,            # Usuario del sistema
+        'user_action': 20,         # usuario_creado/usuario_actualizado
+        'manzana': 10,             # Identificador manzana
+        'villa': 10,               # Identificador villa
+    }
+    
     # Seguridad
     CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8080"]
     

@@ -1,22 +1,31 @@
 #!/usr/bin/env python3
 """
-Script para validar contraseñas y verificar límite de 72 bytes UTF-8
+Script para validar contraseñas y verificar límite de bytes UTF-8
+Usa constantes de configuración desde app.config
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
+
+from app.config import get_settings
+
+settings = get_settings()
+
 
 def validar_contraseña(password: str) -> tuple[bool, str]:
-    """Valida que la contraseña cumpla con la política de seguridad"""
+    """Valida que la contraseña cumpla con la política de seguridad (CV-20)"""
     password_bytes = password.encode('utf-8')
     
-    if len(password) < 8:
-        return False, "❌ Contraseña debe tener al menos 8 caracteres"
-    if len(password_bytes) > 72:
-        return False, f"❌ Contraseña demasiado larga. Máximo 72 bytes UTF-8 (tienes {len(password_bytes)}). Usa menos caracteres especiales/acentos."
-    if not any(c.isupper() for c in password):
+    if len(password) < settings.PASSWORD_MIN_LENGTH:
+        return False, f"❌ Contraseña debe tener al menos {settings.PASSWORD_MIN_LENGTH} caracteres"
+    if len(password_bytes) > settings.PASSWORD_MAX_BYTES:
+        return False, f"❌ Contraseña demasiado larga. Máximo {settings.PASSWORD_MAX_BYTES} bytes UTF-8 (tienes {len(password_bytes)}). Usa menos caracteres especiales/acentos."
+    if settings.PASSWORD_MUST_HAVE_UPPER and not any(c.isupper() for c in password):
         return False, "❌ Contraseña debe contener al menos una mayúscula"
-    if not any(c.isdigit() for c in password):
+    if settings.PASSWORD_MUST_HAVE_DIGIT and not any(c.isdigit() for c in password):
         return False, "❌ Contraseña debe contener al menos un número"
-    if not any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in password):
-        return False, "❌ Contraseña debe contener al menos un carácter especial"
+    if settings.PASSWORD_MUST_HAVE_SPECIAL and not any(c in settings.PASSWORD_SPECIAL_CHARS for c in password):
+        return False, f"❌ Contraseña debe contener al menos un carácter especial: {settings.PASSWORD_SPECIAL_CHARS}"
     
     return True, f"✅ Contraseña válida ({len(password_bytes)} bytes UTF-8)"
 
@@ -30,18 +39,18 @@ def analizar_contraseña(password: str):
     print(f"{'='*60}")
     print(f"Caracteres visuales: {len(password)}")
     print(f"Bytes UTF-8: {len(password_bytes)}")
-    print(f"Límite bcrypt: 72 bytes")
-    print(f"Espacio restante: {72 - len(password_bytes)} bytes")
+    print(f"Límite bcrypt: {settings.PASSWORD_MAX_BYTES} bytes")
+    print(f"Espacio restante: {settings.PASSWORD_MAX_BYTES - len(password_bytes)} bytes")
     print()
     
     # Mostrar análisis de caracteres
     has_upper = any(c.isupper() for c in password)
     has_digit = any(c.isdigit() for c in password)
-    has_special = any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in password)
+    has_special = any(c in settings.PASSWORD_SPECIAL_CHARS for c in password)
     
     print("Requisitos:")
-    print(f"  {'✅' if len(password) >= 8 else '❌'} Mínimo 8 caracteres: {len(password)}")
-    print(f"  {'✅' if len(password_bytes) <= 72 else '❌'} Máximo 72 bytes: {len(password_bytes)}")
+    print(f"  {'✅' if len(password) >= settings.PASSWORD_MIN_LENGTH else '❌'} Mínimo {settings.PASSWORD_MIN_LENGTH} caracteres: {len(password)}")
+    print(f"  {'✅' if len(password_bytes) <= settings.PASSWORD_MAX_BYTES else '❌'} Máximo {settings.PASSWORD_MAX_BYTES} bytes: {len(password_bytes)}")
     print(f"  {'✅' if has_upper else '❌'} Al menos 1 mayúscula")
     print(f"  {'✅' if has_digit else '❌'} Al menos 1 número")
     print(f"  {'✅' if has_special else '❌'} Al menos 1 carácter especial")

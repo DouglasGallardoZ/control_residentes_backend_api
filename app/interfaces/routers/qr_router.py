@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.infrastructure.db import get_db, SessionLocal
 from app.interfaces.schemas.schemas import (
@@ -7,16 +7,18 @@ from app.interfaces.schemas.schemas import (
 from app.infrastructure.db.models import QR as QRModel, Cuenta, Acceso as AccesoModel, ResidenteVivienda, Persona, Visita as VisitaModel
 from datetime import datetime
 from app.infrastructure.utils.time_utils import ahora_sin_tz, timedelta
+from app.config import get_settings
 import secrets
 import string
 
 router = APIRouter(prefix="/api/v1/qr", tags=["QR"])
+settings = get_settings()
 
 
 def generar_token() -> str:
-    """Genera un token QR seguro"""
+    """Genera un token QR seguro de longitud configurable"""
     caracteres = string.ascii_letters + string.digits
-    return ''.join(secrets.choice(caracteres) for _ in range(32))
+    return ''.join(secrets.choice(caracteres) for _ in range(settings.QR_TOKEN_LENGTH))
 
 
 @router.post("/generar-propio", response_model=dict)
@@ -43,7 +45,7 @@ def generar_qr_propio(
         fecha_acceso = request.fecha_acceso
         dt_inicio = datetime.combine(fecha_acceso, hora_inicio)
         
-        if dt_inicio <= ahora_sin_tz():
+        if dt_inicio < ahora_sin_tz():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="La fecha y hora deben ser futuras"
@@ -138,7 +140,7 @@ def generar_qr_visita(
         fecha_acceso = request.fecha_acceso
         dt_inicio = datetime.combine(fecha_acceso, hora_inicio)
         
-        if dt_inicio <= ahora_sin_tz():
+        if dt_inicio < ahora_sin_tz():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="La fecha y hora deben ser futuras"
@@ -233,8 +235,8 @@ def obtener_qr(qr_id: int, db: Session = Depends(get_db)):
 @router.get("/cuenta/generados", response_model=QRPaginatedResponse)
 def listar_qr_por_cuenta(
     usuario_id: int,
-    page: int = 1,
-    page_size: int = 10,
+    page: int = Query(settings.PAGINATION_DEFAULT_PAGE, ge=1),
+    page_size: int = Query(settings.PAGINATION_DEFAULT_PAGE_SIZE, ge=1, le=settings.PAGINATION_MAX_PAGE_SIZE),
     tipo_ingreso: str = None,  # "propio", "visita", o None para todos
     db: Session = Depends(get_db)
 ):
