@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.infrastructure.db import get_db
 from app.infrastructure.db.models import Cuenta, Persona, MiembroVivienda, EventoCuenta, ResidenteVivienda
+from app.interfaces.schemas.schemas import PerfilUsuarioResponse, ViviendaInfo
 from datetime import datetime
 from pydantic import BaseModel
 from app.infrastructure.utils.time_utils import ahora_sin_tz
@@ -375,6 +376,111 @@ def eliminar_cuenta(
         raise
     except Exception as e:
         db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/perfil/{firebase_uid}", response_model=PerfilUsuarioResponse)
+def obtener_perfil_usuario(
+    firebase_uid: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene la información completa del perfil de un usuario basado en su Firebase UID
+    
+    Retorna:
+    - Información personal (nombres, identificación, correo, celular)
+    - Rol (Residente o Miembro de Familia)
+    - Información de vivienda (manzana y villa)
+    - Parentesco (si es miembro de familia)
+    - Estado y fecha de creación
+    """
+    try:
+        # Obtener cuenta por Firebase UID
+        cuenta = db.query(Cuenta).filter(
+            Cuenta.firebase_uid == firebase_uid,
+            Cuenta.estado == "activo",
+            Cuenta.eliminado == False
+        ).first()
+        
+        if not cuenta:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Cuenta no encontrada"
+            )
+        
+        # Obtener persona
+        persona = db.query(Persona).filter(
+            Persona.persona_pk == cuenta.persona_titular_fk
+        ).first()
+        
+        if not persona:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Persona no encontrada en BD"
+            )
+        
+        # Determinar rol y obtener información de vivienda
+        rol = None
+        parentesco = None
+        vivienda = None
+        
+        # Verificar si es residente
+        residente = db.query(ResidenteVivienda).filter(
+            ResidenteVivienda.persona_residente_fk == persona.persona_pk,
+            ResidenteVivienda.estado == "activo",
+            ResidenteVivienda.eliminado == False
+        ).first()
+        
+        if residente:
+            rol = "residente"
+            vivienda = residente.vivienda
+        else:
+            # Verificar si es miembro de familia
+            miembro = db.query(MiembroVivienda).filter(
+                MiembroVivienda.persona_miembro_fk == persona.persona_pk,
+                MiembroVivienda.estado == "activo",
+                MiembroVivienda.eliminado == False
+            ).first()
+            
+            if miembro:
+                rol = "miembro_familia"
+                parentesco = miembro.parentesco
+                vivienda = miembro.vivienda
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Usuario no es residente ni miembro de familia activo"
+                )
+        
+        if not vivienda:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Vivienda no encontrada"
+            )
+        
+        return PerfilUsuarioResponse(
+            persona_id=persona.persona_pk,
+            identificacion=persona.identificacion,
+            nombres=persona.nombres,
+            apellidos=persona.apellidos,
+            correo=persona.correo,
+            celular=persona.celular,
+            estado=persona.estado,
+            rol=rol,
+            vivienda=ViviendaInfo(
+                manzana=vivienda.manzana,
+                villa=vivienda.villa
+            ),
+            parentesco=parentesco,
+            fecha_creado=persona.fecha_creado
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)

@@ -341,3 +341,28 @@ class RechazarSolicitudCodigoRequest(BaseModel):
 
 class UtilizarCodigoAutorizacionRequest(BaseModel):
     codigo: str
+
+
+# ============ PERFIL DE USUARIO ============
+class ViviendaInfo(BaseModel):
+    """Información de vivienda para perfil"""
+    manzana: str
+    villa: str
+
+
+class PerfilUsuarioResponse(BaseModel):
+    """Response con información completa del perfil de usuario"""
+    persona_id: int
+    identificacion: str
+    nombres: str
+    apellidos: str
+    correo: Optional[EmailStr] = None
+    celular: Optional[str] = None
+    estado: str
+    rol: str  # "residente" o "miembro_familia"
+    vivienda: ViviendaInfo
+    parentesco: Optional[str] = None  # Solo si rol es "miembro_familia"
+    fecha_creado: datetime
+
+    class Config:
+        from_attributes = True

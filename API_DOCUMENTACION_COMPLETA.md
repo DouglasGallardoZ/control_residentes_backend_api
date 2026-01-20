@@ -13,7 +13,7 @@
 1. [Introducción y Conceptos](#introducción-y-conceptos)
 2. [Configuración Base](#configuración-base)
 3. [Autenticación](#autenticación)
-4. [Endpoints - Cuentas (5)](#cuentas)
+4. [Endpoints - Cuentas (6)](#cuentas)
 5. [Endpoints - QR (4)](#qr)
 6. [Endpoints - Residentes (5)](#residentes)
 7. [Endpoints - Propietarios (4)](#propietarios)
@@ -189,7 +189,7 @@ POST /auth/login
 ## CUENTAS
 
 **Prefijo:** `/api/v1/cuentas`  
-**Total Endpoints:** 5
+**Total Endpoints:** 6
 
 ### 1. Crear Cuenta de Residente con Firebase
 
@@ -396,6 +396,227 @@ Elimina (soft delete) una cuenta del sistema.
   "cuenta_id": 42
 }
 ```
+
+---
+
+### 6. Obtener Perfil de Usuario (por Firebase UID)
+
+**Endpoint:** `GET /perfil/{firebase_uid}`  
+**Requirement:** RF-C03 (Nueva funcionalidad)  
+**Auth:** No requiere
+
+**Descripción:**
+Obtiene la información completa del perfil de un usuario basado en su Firebase UID. Retorna toda la información necesaria para la app incluyendo rol, vivienda, y parentesco si aplica.
+
+**Path Parameters:**
+```
+{firebase_uid} = UID obtenido de Firebase Auth
+```
+
+**Success Response (200 OK):**
+```json
+{
+  "persona_id": 1,
+  "identificacion": "1234567890",
+  "nombres": "Juan",
+  "apellidos": "Pérez López",
+  "correo": "juan.perez@example.com",
+  "celular": "+593987654321",
+  "estado": "activo",
+  "rol": "residente",
+  "vivienda": {
+    "manzana": "A",
+    "villa": "101"
+  },
+  "parentesco": null,
+  "fecha_creado": "2024-12-20T10:00:00"
+}
+```
+
+**Response Fields:**
+| Campo | Tipo | Descripción |
+|-------|------|-----------|
+| persona_id | integer | ID de la persona en BD |
+| identificacion | string | Cédula/Pasaporte |
+| nombres | string | Nombres |
+| apellidos | string | Apellidos |
+| correo | string\|null | Email |
+| celular | string\|null | Teléfono |
+| estado | string | "activo" o "inactivo" |
+| rol | string | "residente" o "miembro_familia" |
+| vivienda.manzana | string | Manzana de la residencia |
+| vivienda.villa | string | Villa de la residencia |
+| parentesco | string\|null | Solo si rol="miembro_familia" (padre, madre, hijo, etc.) |
+| fecha_creado | datetime | Fecha de registro del usuario |
+
+**Ejemplo de Respuesta - Miembro de Familia:**
+```json
+{
+  "persona_id": 4,
+  "identificacion": "2222222222",
+  "nombres": "Ana",
+  "apellidos": "Pérez García",
+  "correo": "ana.perez@example.com",
+  "celular": "+593987777777",
+  "estado": "activo",
+  "rol": "miembro_familia",
+  "vivienda": {
+    "manzana": "A",
+    "villa": "101"
+  },
+  "parentesco": "hija",
+  "fecha_creado": "2024-12-24T10:00:00"
+}
+```
+
+**Validaciones:**
+- ✅ Firebase UID debe existir
+- ✅ Cuenta debe estar activa (no eliminada ni bloqueada)
+- ✅ Persona debe ser residente O miembro de familia activo
+- ✅ Usuario debe tener una vivienda asignada
+
+**Error Responses:**
+
+```json
+// 404 - Firebase UID no encontrado
+{
+  "detail": "Cuenta no encontrada"
+}
+
+// 404 - No es residente ni miembro
+{
+  "detail": "Usuario no es residente ni miembro de familia activo"
+}
+```
+
+**Uso en Flutter:**
+
+```dart
+Future<PerfilUsuario> obtenerMiPerfil(String firebaseUid) async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/cuentas/perfil/$firebaseUid'),
+    headers: {'Content-Type': 'application/json'},
+  );
+  
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    return PerfilUsuario.fromJson(data);
+  } else if (response.statusCode == 404) {
+    throw Exception('Usuario no encontrado');
+  } else {
+    throw Exception('Error: ${response.body}');
+  }
+}
+
+// Ejemplo de modelo Dart
+class PerfilUsuario {
+  final int personaId;
+  final String identificacion;
+  final String nombres;
+  final String apellidos;
+  final String? correo;
+  final String? celular;
+  final String estado;
+  final String rol; // "residente" o "miembro_familia"
+  final ViviendaInfo vivienda;
+  final String? parentesco;
+  final DateTime fechaCreado;
+  
+  PerfilUsuario({
+    required this.personaId,
+    required this.identificacion,
+    required this.nombres,
+    required this.apellidos,
+    this.correo,
+    this.celular,
+    required this.estado,
+    required this.rol,
+    required this.vivienda,
+    this.parentesco,
+    required this.fechaCreado,
+  });
+  
+  factory PerfilUsuario.fromJson(Map<String, dynamic> json) {
+    return PerfilUsuario(
+      personaId: json['persona_id'],
+      identificacion: json['identificacion'],
+      nombres: json['nombres'],
+      apellidos: json['apellidos'],
+      correo: json['correo'],
+      celular: json['celular'],
+      estado: json['estado'],
+      rol: json['rol'],
+      vivienda: ViviendaInfo.fromJson(json['vivienda']),
+      parentesco: json['parentesco'],
+      fechaCreado: DateTime.parse(json['fecha_creado']),
+    );
+  }
+}
+
+class ViviendaInfo {
+  final String manzana;
+  final String villa;
+  
+  ViviendaInfo({required this.manzana, required this.villa});
+  
+  factory ViviendaInfo.fromJson(Map<String, dynamic> json) {
+    return ViviendaInfo(
+      manzana: json['manzana'],
+      villa: json['villa'],
+    );
+  }
+}
+
+// Uso en la app
+void cargarPerfilUsuario() async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user != null) {
+    try {
+      final perfil = await obtenerMiPerfil(user.uid);
+      print('Nombre: ${perfil.nombres}');
+      print('Rol: ${perfil.rol}');
+      print('Vivienda: ${perfil.vivienda.manzana}-${perfil.vivienda.villa}');
+      
+      // Habilitar funciones según rol
+      if (perfil.rol == 'residente') {
+        mostrarOpcionesResidente();
+      } else if (perfil.rol == 'miembro_familia') {
+        mostrarOpcionesMiembro(perfil.parentesco);
+      }
+    } catch (e) {
+      print('Error: $e');
+    }
+  }
+}
+```
+
+**Casos de Uso:**
+
+1. **Obtener datos al iniciar sesión:**
+   ```dart
+   // Después de que Firebase Auth retorna el UID
+   final perfil = await obtenerMiPerfil(firebaseUser.uid);
+   // Guardar en SharedPreferences o Provider
+   await guardarPerfilLocal(perfil);
+   ```
+
+2. **Habilitar/Deshabilitar opciones según rol:**
+   ```dart
+   if (perfil.rol == 'residente') {
+     // Mostrar: Generar QR propio, gestionar familia
+     habilitarOpcionesResidente();
+   } else if (perfil.rol == 'miembro_familia') {
+     // Mostrar: Generar QR propio (limitado)
+     // Parentesco importante para algunos flujos
+     habilitarOpcionesMiembro(perfil.parentesco);
+   }
+   ```
+
+3. **Mostrar información de vivienda:**
+   ```dart
+   final direccion = 'Manzana ${perfil.vivienda.manzana}, Villa ${perfil.vivienda.villa}';
+   mostrarInformacionVivienda(direccion);
+   ```
 
 ---
 
@@ -1849,13 +2070,13 @@ class _QrListScreenState extends State<QrListScreen> {
 
 | Categoría | Cantidad |
 |-----------|----------|
-| **Endpoints Totales** | 23 |
-| Endpoints de Cuentas | 5 |
+| **Endpoints Totales** | 24 |
+| Endpoints de Cuentas | 6 |
 | Endpoints de QR | 4 |
 | Endpoints de Residentes | 5 |
 | Endpoints de Propietarios | 4 |
 | Endpoints de Miembros | 5 |
-| **Modelos Principales** | 8 |
+| **Modelos Principales** | 9 |
 | **Códigos de Error HTTP** | 8 |
 | **Campos de Auditoría** | 4 |
 
