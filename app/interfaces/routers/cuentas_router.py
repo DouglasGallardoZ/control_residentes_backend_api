@@ -18,6 +18,13 @@ class CuentaFirebaseCreate(BaseModel):
     usuario_creado: str = "api_user"
 
 
+class BloquearDesbloquearRequest(BaseModel):
+    """Schema para bloquear/desbloquear cuenta"""
+    usuario_actualizado: str
+    motivo: str = "Cuenta modificada"
+    cascada: bool = True  # True = bloquea/desbloquea miembros si es residente, False = solo esa cuenta
+
+
 @router.post("/residente/firebase", response_model=dict)
 def crear_cuenta_residente_firebase(
     request: CuentaFirebaseCreate,
@@ -216,47 +223,91 @@ def crear_cuenta_miembro_familia_firebase(
 @router.post("/{cuenta_id}/bloquear", response_model=dict)
 def bloquear_cuenta(
     cuenta_id: int,
-    usuario_actualizado: str,
-    motivo: str = "Cuenta bloqueada",
+    request: BloquearDesbloquearRequest,
     db: Session = Depends(get_db)
 ):
     """
-    Bloquea una cuenta individual
-    RF-C07
+    Bloquea una cuenta individual (RFC-C07)
+    Si es residente y cascada=true, también bloquea miembros de familia (RFC-C05)
+    Si cascada=false, bloquea SOLO esa cuenta sin cascada
     """
     try:
-        cuenta = db.query(Cuenta).filter(Cuenta.cuenta_pk == cuenta_id).first()
-        if not cuenta:
+        cuenta_principal = db.query(Cuenta).filter(Cuenta.persona_titular_fk == cuenta_id).first()
+        if not cuenta_principal:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Cuenta no encontrada"
             )
         
-        if cuenta.estado == "inactivo":
+        if cuenta_principal.estado == "inactivo":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="La cuenta ya se encuentra inactiva"
             )
         
-        # Bloquear cuenta
-        cuenta.estado = "inactivo"
-        cuenta.fecha_actualizado = ahora_sin_tz()
-        cuenta.usuario_actualizado = usuario_actualizado
+        cuentas_a_bloquear = [cuenta_principal]
+        vivienda_id = None
+        es_residente = False
+        cascada_aplicada = False
         
-        # Registrar evento
-        evento = EventoCuenta(
-            cuenta_afectada_fk=cuenta.cuenta_pk,
-            tipo_evento="cuenta_bloqueada",
-            motivo=motivo,
-            usuario_creado=usuario_actualizado
-        )
-        db.add(evento)
+        # Si cascada=true, verificar si es residente y obtener miembros
+        if request.cascada:
+            # Obtener persona titular
+            persona = db.query(Persona).filter(
+                Persona.persona_pk == cuenta_principal.persona_titular_fk
+            ).first()
+            
+            # Verificar si es residente activo
+            residente = db.query(ResidenteVivienda).filter(
+                ResidenteVivienda.persona_residente_fk == persona.persona_pk,
+                ResidenteVivienda.estado == "activo"
+            ).first()
+            
+            if residente:
+                es_residente = True
+                vivienda_id = residente.vivienda_reside_fk
+                cascada_aplicada = True
+                
+                # Obtener todos los miembros de esa vivienda
+                miembros = db.query(MiembroVivienda).filter(
+                    MiembroVivienda.vivienda_familia_fk == vivienda_id,
+                    MiembroVivienda.estado == "activo"
+                ).all()
+                
+                # Obtener cuentas de cada miembro
+                for miembro in miembros:
+                    cuenta_miembro = db.query(Cuenta).filter(
+                        Cuenta.persona_titular_fk == miembro.persona_miembro_fk,
+                        Cuenta.estado == "activo"
+                    ).first()
+                    
+                    if cuenta_miembro:
+                        cuentas_a_bloquear.append(cuenta_miembro)
+        
+        # Bloquear todas las cuentas
+        for cuenta in cuentas_a_bloquear:
+            cuenta.estado = "inactivo"
+            cuenta.fecha_actualizado = ahora_sin_tz()
+            cuenta.usuario_actualizado = request.usuario_actualizado
+            
+            evento = EventoCuenta(
+                cuenta_afectada_fk=cuenta.cuenta_pk,
+                tipo_evento="cuenta_bloqueada",
+                motivo=request.motivo,
+                usuario_creado=request.usuario_actualizado
+            )
+            db.add(evento)
         
         db.commit()
         
         return {
-            "mensaje": "La cuenta ha sido bloqueada correctamente",
-            "cuenta_id": cuenta_id
+            "mensaje": f"Se han bloqueado {len(cuentas_a_bloquear)} cuenta(s)",
+            "cuentas_bloqueadas": len(cuentas_a_bloquear),
+            "cuenta_principal_id": cuenta_id,
+            "es_residente": es_residente,
+            "cascada_solicitada": request.cascada,
+            "cascada_aplicada": cascada_aplicada,
+            "vivienda_id": vivienda_id
         }
     
     except HTTPException:
@@ -272,47 +323,91 @@ def bloquear_cuenta(
 @router.post("/{cuenta_id}/desbloquear", response_model=dict)
 def desbloquear_cuenta(
     cuenta_id: int,
-    usuario_actualizado: str,
-    motivo: str = "Cuenta desbloqueada",
+    request: BloquearDesbloquearRequest,
     db: Session = Depends(get_db)
 ):
     """
-    Desbloquea una cuenta individual
-    RF-C08
+    Desbloquea una cuenta individual (RFC-C08)
+    Si es residente y cascada=true, también desbloquea miembros de familia (RFC-C06)
+    Si cascada=false, desbloquea SOLO esa cuenta sin cascada
     """
     try:
-        cuenta = db.query(Cuenta).filter(Cuenta.cuenta_pk == cuenta_id).first()
-        if not cuenta:
+        cuenta_principal = db.query(Cuenta).filter(Cuenta.persona_titular_fk == cuenta_id).first()
+        if not cuenta_principal:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Cuenta no encontrada"
             )
         
-        if cuenta.estado == "activo":
+        if cuenta_principal.estado == "activo":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="La cuenta ya se encuentra activa"
             )
         
-        # Desbloquear cuenta
-        cuenta.estado = "activo"
-        cuenta.fecha_actualizado = ahora_sin_tz()
-        cuenta.usuario_actualizado = usuario_actualizado
+        cuentas_a_desbloquear = [cuenta_principal]
+        vivienda_id = None
+        es_residente = False
+        cascada_aplicada = False
         
-        # Registrar evento
-        evento = EventoCuenta(
-            cuenta_afectada_fk=cuenta.cuenta_pk,
-            tipo_evento="cuenta_desbloqueada",
-            motivo=motivo,
-            usuario_creado=usuario_actualizado
-        )
-        db.add(evento)
+        # Si cascada=true, verificar si es residente y obtener miembros
+        if request.cascada:
+            # Obtener persona titular
+            persona = db.query(Persona).filter(
+                Persona.persona_pk == cuenta_principal.persona_titular_fk
+            ).first()
+            
+            # Verificar si es residente activo
+            residente = db.query(ResidenteVivienda).filter(
+                ResidenteVivienda.persona_residente_fk == persona.persona_pk,
+                ResidenteVivienda.estado == "activo"
+            ).first()
+            
+            if residente:
+                es_residente = True
+                vivienda_id = residente.vivienda_reside_fk
+                cascada_aplicada = True
+                
+                # Obtener todos los miembros de esa vivienda
+                miembros = db.query(MiembroVivienda).filter(
+                    MiembroVivienda.vivienda_familia_fk == vivienda_id,
+                    MiembroVivienda.estado == "activo"
+                ).all()
+                
+                # Obtener cuentas de cada miembro
+                for miembro in miembros:
+                    cuenta_miembro = db.query(Cuenta).filter(
+                        Cuenta.persona_titular_fk == miembro.persona_miembro_fk,
+                        Cuenta.estado == "inactivo"
+                    ).first()
+                    
+                    if cuenta_miembro:
+                        cuentas_a_desbloquear.append(cuenta_miembro)
+        
+        # Desbloquear todas las cuentas
+        for cuenta in cuentas_a_desbloquear:
+            cuenta.estado = "activo"
+            cuenta.fecha_actualizado = ahora_sin_tz()
+            cuenta.usuario_actualizado = request.usuario_actualizado
+            
+            evento = EventoCuenta(
+                cuenta_afectada_fk=cuenta.cuenta_pk,
+                tipo_evento="cuenta_desbloqueada",
+                motivo=request.motivo,
+                usuario_creado=request.usuario_actualizado
+            )
+            db.add(evento)
         
         db.commit()
         
         return {
-            "mensaje": "La cuenta ha sido desbloqueada correctamente",
-            "cuenta_id": cuenta_id
+            "mensaje": f"Se han desbloqueado {len(cuentas_a_desbloquear)} cuenta(s)",
+            "cuentas_desbloqueadas": len(cuentas_a_desbloquear),
+            "cuenta_principal_id": cuenta_id,
+            "es_residente": es_residente,
+            "cascada_solicitada": request.cascada,
+            "cascada_aplicada": cascada_aplicada,
+            "vivienda_id": vivienda_id
         }
     
     except HTTPException:
