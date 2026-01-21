@@ -58,19 +58,34 @@ def generar_qr_propio(
                 detail="La duración debe ser mayor a 0 horas"
             )
         
-        # Obtener vivienda del residente desde relación
+        # Obtener vivienda: verificar si es residente o miembro de familia
+        vivienda_id = None
+        
+        # Verificar si es residente
         residente = db.query(ResidenteVivienda).filter(
             ResidenteVivienda.persona_residente_fk == cuenta.persona_titular_fk,
-            ResidenteVivienda.estado == "activo"
+            ResidenteVivienda.estado == "activo",
+            ResidenteVivienda.eliminado == False
         ).first()
         
-        if not residente:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Usuario no tiene una vivienda asignada como residente activo"
-            )
+        if residente:
+            vivienda_id = residente.vivienda_reside_fk
+        else:
+            # Verificar si es miembro de familia
+            miembro = db.query(MiembroVivienda).filter(
+                MiembroVivienda.persona_miembro_fk == cuenta.persona_titular_fk,
+                MiembroVivienda.estado == "activo",
+                MiembroVivienda.eliminado == False
+            ).first()
+            
+            if miembro:
+                vivienda_id = miembro.vivienda_familia_fk
         
-        vivienda_id = residente.vivienda_reside_fk
+        if not vivienda_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Usuario no tiene una vivienda asignada como residente o miembro de familia activo"
+            )
         
         # Generar token
         token = generar_token()
@@ -153,19 +168,34 @@ def generar_qr_visita(
                 detail="La duración debe ser mayor a 0 horas"
             )
         
-        # Obtener vivienda del residente desde relación
+        # Obtener vivienda: verificar si es residente o miembro de familia
+        vivienda_id = None
+        
+        # Verificar si es residente
         residente = db.query(ResidenteVivienda).filter(
             ResidenteVivienda.persona_residente_fk == cuenta.persona_titular_fk,
-            ResidenteVivienda.estado == "activo"
+            ResidenteVivienda.estado == "activo",
+            ResidenteVivienda.eliminado == False
         ).first()
         
-        if not residente:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Usuario no tiene una vivienda asignada como residente activo"
-            )
+        if residente:
+            vivienda_id = residente.vivienda_reside_fk
+        else:
+            # Verificar si es miembro de familia
+            miembro = db.query(MiembroVivienda).filter(
+                MiembroVivienda.persona_miembro_fk == cuenta.persona_titular_fk,
+                MiembroVivienda.estado == "activo",
+                MiembroVivienda.eliminado == False
+            ).first()
+            
+            if miembro:
+                vivienda_id = miembro.vivienda_familia_fk
         
-        vivienda_id = residente.vivienda_reside_fk
+        if not vivienda_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Usuario no tiene una vivienda asignada como residente o miembro de familia activo"
+            )
         
         # Verificar si ya existe un visitante con la misma identificación en esta vivienda
         visita_existente = db.query(VisitaModel).filter(
