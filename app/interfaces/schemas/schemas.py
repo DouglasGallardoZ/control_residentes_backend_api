@@ -346,8 +346,33 @@ class UtilizarCodigoAutorizacionRequest(BaseModel):
 # ============ PERFIL DE USUARIO ============
 class ViviendaInfo(BaseModel):
     """Información de vivienda para perfil"""
+    vivienda_id: int
     manzana: str
     villa: str
+
+
+class VisitaResponse(BaseModel):
+    """Response con información de visitante para reutilización"""
+    visita_id: int
+    identificacion: str
+    nombres: str
+    apellidos: str
+    fecha_creado: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ViviendaVisitasResponse(BaseModel):
+    """Response con lista de visitantes de una vivienda"""
+    vivienda_id: int
+    manzana: str
+    villa: str
+    visitantes: List[VisitaResponse]
+    total: int
+
+    class Config:
+        from_attributes = True
 
 
 class PerfilUsuarioResponse(BaseModel):

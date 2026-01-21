@@ -14,7 +14,7 @@
 2. [Configuración Base](#configuración-base)
 3. [Autenticación](#autenticación)
 4. [Endpoints - Cuentas (6)](#cuentas)
-5. [Endpoints - QR (4)](#qr)
+5. [Endpoints - QR (5)](#qr)
 6. [Endpoints - Residentes (5)](#residentes)
 7. [Endpoints - Propietarios (4)](#propietarios)
 8. [Endpoints - Miembros de Familia (5)](#miembros-de-familia)
@@ -425,6 +425,7 @@ Obtiene la información completa del perfil de un usuario basado en su Firebase 
   "estado": "activo",
   "rol": "residente",
   "vivienda": {
+    "vivienda_id": 1,
     "manzana": "A",
     "villa": "101"
   },
@@ -444,6 +445,7 @@ Obtiene la información completa del perfil de un usuario basado en su Firebase 
 | celular | string\|null | Teléfono |
 | estado | string | "activo" o "inactivo" |
 | rol | string | "residente" o "miembro_familia" |
+| vivienda.vivienda_id | integer | ID de la vivienda |
 | vivienda.manzana | string | Manzana de la residencia |
 | vivienda.villa | string | Villa de la residencia |
 | parentesco | string\|null | Solo si rol="miembro_familia" (padre, madre, hijo, etc.) |
@@ -461,6 +463,7 @@ Obtiene la información completa del perfil de un usuario basado en su Firebase 
   "estado": "activo",
   "rol": "miembro_familia",
   "vivienda": {
+    "vivienda_id": 1,
     "manzana": "A",
     "villa": "101"
   },
@@ -554,13 +557,15 @@ class PerfilUsuario {
 }
 
 class ViviendaInfo {
+  final int viviendaId;
   final String manzana;
   final String villa;
   
-  ViviendaInfo({required this.manzana, required this.villa});
+  ViviendaInfo({required this.viviendaId, required this.manzana, required this.villa});
   
   factory ViviendaInfo.fromJson(Map<String, dynamic> json) {
     return ViviendaInfo(
+      viviendaId: json['vivienda_id'],
       manzana: json['manzana'],
       villa: json['villa'],
     );
@@ -727,7 +732,7 @@ Future<Map<String, dynamic>> generarQRPropio(
 **Auth:** Bearer token
 
 **Descripción:**
-Genera un código QR para una visita. Registra automáticamente los datos del visitante en la tabla `visita`.
+Genera un código QR para una visita. Registra automáticamente los datos del visitante en la tabla `visita`, pero **evita duplicados**: si el visitante con esa identificación ya existe en la vivienda, reutiliza ese registro sin crear uno nuevo.
 
 **Request Body:**
 ```json
@@ -760,30 +765,112 @@ Genera un código QR para una visita. Registra automáticamente los datos del vi
 {
   "id": 16,
   "token": "xY9aBcDeFgHiJkLmNoPqRsTuVwXyZ789",
-  "visitante": "Carlos García",
-  "motivo": "Revisión técnica de aire acondicionado",
   "hora_inicio": "2024-12-25T10:00:00",
   "hora_fin": "2024-12-25T12:00:00",
   "estado": "vigente",
   "visita_id": 101,
-  "mensaje": "QR de visita generado correctamente"
+  "mensaje": "Código QR para visita generado correctamente - Nuevo visitante registrado",
+  "es_visitante_nuevo": true
 }
 ```
+
+**Respuesta si el visitante ya existe:**
+```json
+{
+  "id": 17,
+  "token": "aB9zYxWvUtSrQpOnMlKjIhGfEdCbAz123",
+  "hora_inicio": "2024-12-25T14:00:00",
+  "hora_fin": "2024-12-25T16:00:00",
+  "estado": "vigente",
+  "visita_id": 101,
+  "mensaje": "Código QR para visita generado correctamente - Visitante reutilizado",
+  "es_visitante_nuevo": false
+}
+```
+
+**Campos de Respuesta:**
+| Campo | Descripción |
+|-------|-----------|
+| id | ID del QR generado |
+| token | Código de acceso único |
+| hora_inicio | Inicio de vigencia |
+| hora_fin | Fin de vigencia |
+| estado | Estado del QR |
+| visita_id | ID del registro de visita (nuevo o reutilizado) |
+| mensaje | Descripción clara de lo que ocurrió |
+| es_visitante_nuevo | `true` si se creó nuevo registro, `false` si se reutilizó |
 
 **Validaciones:**
 - ✅ Usuario debe tener cuenta activa
 - ✅ Datos de visitante son obligatorios
 - ✅ Fecha/hora deben ser futuras
 - ✅ Identificación visitante <= 20 caracteres
+- ✅ **Se verifica si visitante con esa identificación YA EXISTE** en esa vivienda
+
+**Lógica de Duplicados:**
+```
+1. Buscar si existe visita con misma identificación en la vivienda
+2. Si EXISTE:
+   - Reutilizar ese registro (no crear nuevo)
+   - Usar su visita_id
+   - Retornar: es_visitante_nuevo = false
+3. Si NO EXISTE:
+   - Crear nuevo registro en tabla visita
+   - Usar el nuevo visita_id
+   - Retornar: es_visitante_nuevo = true
+```
+
+**Beneficios:**
+- ✅ Evita duplicación de registros de visitantes
+- ✅ Permite múltiples QRs para el mismo visitante
+- ✅ Histórico centralizado de visitas
+- ✅ Datos siempre sincronizados
 
 **Side Effects:**
-- Se registra automáticamente en tabla `visita`
+- Se registra en tabla `visita` SOLO si es la primera vez
+- Se crea entrada de QR siempre
 - Se crea entrada de auditoría
 
 **Error Responses:**
 ```json
 {
   "detail": "Los datos de la visita son obligatorios"
+}
+```
+
+**Ejemplo en Dart/Flutter:**
+```dart
+Future<void> generarQRVisita() async {
+  final response = await http.post(
+    Uri.parse('$baseUrl/qr/generar-visita'),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $accessToken',
+    },
+    body: jsonEncode({
+      'visita_identificacion': '1234567890',
+      'visita_nombres': 'Carlos',
+      'visita_apellidos': 'García',
+      'motivo_visita': 'Reparación de ventilación',
+      'duracion_horas': 3,
+      'fecha_acceso': '2024-12-25',
+      'hora_inicio': '10:00',
+      'usuario_creado': 'flutter_app'
+    }),
+  );
+  
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    
+    if (data['es_visitante_nuevo']) {
+      print('✅ Nuevo visitante registrado');
+    } else {
+      print('ℹ️  Visitante reutilizado (visto anteriormente)');
+    }
+    
+    print('QR: ${data['token']}');
+    mostrarQR(data['token']);
+  }
 }
 ```
 
@@ -931,6 +1018,269 @@ final qrs = await listarQRs(page: 1, tipoIngreso: 'propio');
 print('Total QRs: ${qrs['total']}');
 print('Hay más: ${qrs['has_next']}');
 ```
+
+---
+
+### 5. Obtener Visitantes de Vivienda
+
+**Endpoint:** `GET /visitantes/{persona_id}`  
+**Requirement:** RF-Q04 (Consultar visitantes por vivienda)  
+**Auth:** Bearer token
+
+**Descripción:**
+Obtiene el listado de todos los visitantes registrados para una vivienda específica. La vivienda se determina automáticamente basándose en si la persona es residente o miembro de familia. Útil para reutilizar información de visitantes anteriores en la app Flutter.
+
+**Path Parameters:**
+```
+{persona_id} = ID de la persona (puede ser residente o miembro de familia)
+```
+
+**Success Response (200 OK):**
+```json
+{
+  "vivienda_id": 1,
+  "manzana": "A",
+  "villa": "101",
+  "visitantes": [
+    {
+      "visita_id": 101,
+      "identificacion": "1234567890",
+      "nombres": "Carlos",
+      "apellidos": "García",
+      "fecha_creado": "2024-12-25T10:00:00"
+    },
+    {
+      "visita_id": 102,
+      "identificacion": "9876543210",
+      "nombres": "María",
+      "apellidos": "López",
+      "fecha_creado": "2024-12-24T15:30:00"
+    }
+  ],
+  "total": 2
+}
+```
+
+**Lógica:**
+1. Se busca la persona por `persona_id`
+2. Se verifica si es **residente activo** (tabla `ResidenteVivienda` con `estado='activo'`)
+3. Si no, se verifica si es **miembro de familia activo** (tabla `MiembroVivienda` con `estado='activo'`)
+4. Se obtiene el `vivienda_id` de la relación
+5. Se retornan todas las visitas asociadas a esa vivienda (excluyendo eliminadas)
+6. Se ordenan por fecha descendente (más recientes primero)
+
+**Validaciones:**
+- ✅ Persona debe existir
+- ✅ Persona debe ser residente o miembro activo
+- ✅ Solo retorna visitantes no eliminados
+- ✅ Requiere autenticación válida
+
+**Error Responses:**
+
+```json
+// 404 - Persona no encontrada
+{
+  "detail": "Persona no encontrada"
+}
+
+// 403 - Persona sin vivienda activa
+{
+  "detail": "La persona no tiene una vivienda asociada activa"
+}
+
+// 401 - No autorizado
+{
+  "detail": "Usuario no autorizado"
+}
+```
+
+**Casos de Uso en Flutter:**
+
+**1. Cargar visitantes al abrir formulario:**
+```dart
+Future<List<Visitante>> cargarVisitantesDisponibles(int personaId) async {
+  try {
+    final response = await http.get(
+      Uri.parse('$baseUrl/qr/visitantes/$personaId'),
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return List<Visitante>.from(
+        (data['visitantes'] as List).map(
+          (v) => Visitante(
+            id: v['visita_id'],
+            identificacion: v['identificacion'],
+            nombres: v['nombres'],
+            apellidos: v['apellidos'],
+            fechaCreado: DateTime.parse(v['fecha_creado']),
+          ),
+        ),
+      );
+    } else {
+      throw Exception('Error al cargar visitantes');
+    }
+  } catch (e) {
+    print('Error: $e');
+    return [];
+  }
+}
+
+class Visitante {
+  final int id;
+  final String identificacion;
+  final String nombres;
+  final String apellidos;
+  final DateTime fechaCreado;
+
+  Visitante({
+    required this.id,
+    required this.identificacion,
+    required this.nombres,
+    required this.apellidos,
+    required this.fechaCreado,
+  });
+
+  String get nombreCompleto => '$nombres $apellidos';
+  
+  String get displayText => '$nombreCompleto ($identificacion)';
+}
+```
+
+**2. Mostrar lista de visitantes para seleccionar:**
+```dart
+class SeleccionarVisitanteDialog extends StatelessWidget {
+  final List<Visitante> visitantes;
+  final Function(Visitante) onSeleccionar;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Seleccionar Visitante'),
+      content: visitantes.isEmpty
+          ? Text('No hay visitantes registrados')
+          : SizedBox(
+              width: double.maxFinite,
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: visitantes.length,
+                itemBuilder: (context, index) {
+                  final visitante = visitantes[index];
+                  return ListTile(
+                    title: Text(visitante.nombreCompleto),
+                    subtitle: Text(visitante.identificacion),
+                    trailing: Text(
+                      'hace ${_calcularTiempoAtras(visitante.fechaCreado)}',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    onTap: () {
+                      onSeleccionar(visitante);
+                      Navigator.pop(context);
+                    },
+                  );
+                },
+              ),
+            ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text('Cancelar'),
+        ),
+        TextButton(
+          onPressed: () {
+            Navigator.pop(context);
+            // Ir a crear nuevo visitante
+            mostrarFormularioNuevoVisitante();
+          },
+          child: Text('Nuevo Visitante'),
+        ),
+      ],
+    );
+  }
+
+  String _calcularTiempoAtras(DateTime fecha) {
+    final ahora = DateTime.now();
+    final diferencia = ahora.difference(fecha);
+
+    if (diferencia.inMinutes < 1) return 'hace poco';
+    if (diferencia.inMinutes < 60) return 'hace ${diferencia.inMinutes}m';
+    if (diferencia.inHours < 24) return 'hace ${diferencia.inHours}h';
+    if (diferencia.inDays < 7) return 'hace ${diferencia.inDays}d';
+    return '${diferencia.inDays ~/ 7}s atrás';
+  }
+}
+```
+
+**3. Flujo completo de reutilizar visitante:**
+```dart
+void flujoGenerarQRVisita(int personaId) async {
+  // 1. Cargar visitantes disponibles
+  final visitantes = await cargarVisitantesDisponibles(personaId);
+
+  // 2. Si hay visitantes, permitir seleccionar
+  if (visitantes.isNotEmpty) {
+    showDialog(
+      context: context,
+      builder: (context) => SeleccionarVisitanteDialog(
+        visitantes: visitantes,
+        onSeleccionar: (visitanteSeleccionado) {
+          // 3. Usar datos del visitante para generar QR
+          generarQRConVisitanteExistente(personaId, visitanteSeleccionado);
+        },
+      ),
+    );
+  } else {
+    // 4. Si no hay visitantes, mostrar formulario vacío
+    mostrarFormularioNuevoVisitante(personaId);
+  }
+}
+
+Future<void> generarQRConVisitanteExistente(
+  int personaId,
+  Visitante visitante,
+) async {
+  try {
+    final response = await http.post(
+      Uri.parse('$baseUrl/qr/generar-visita'),
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'persona_id': personaId,
+        'identificacion': visitante.identificacion,
+        'nombres': visitante.nombres,
+        'apellidos': visitante.apellidos,
+        'usuario_creado': 'flutter_app',
+      }),
+    );
+
+    if (response.statusCode == 201) {
+      final qr = jsonDecode(response.body);
+      
+      // Mostrar QR generado
+      mostrarQRGenerado(
+        qr['token'],
+        esNuevoVisitante: qr['es_visitante_nuevo'] == false, // Es reutilizado
+      );
+    } else {
+      mostrarError('Error al generar QR');
+    }
+  } catch (e) {
+    mostrarError('Error: $e');
+  }
+}
+```
+
+**Ventajas de usar este endpoint:**
+
+1. **UX mejorada:** Los usuarios no necesitan reescribir datos de visitantes frecuentes
+2. **Consistencia:** Los datos se reutilizan como fueron originalmente registrados
+3. **Eficiencia:** Reduce errores de tipeo y agiliza el flujo
+4. **Auditoría:** El endpoint retorna el histórico con timestamps para rastreo
 
 ---
 
@@ -2070,9 +2420,9 @@ class _QrListScreenState extends State<QrListScreen> {
 
 | Categoría | Cantidad |
 |-----------|----------|
-| **Endpoints Totales** | 24 |
+| **Endpoints Totales** | 25 |
 | Endpoints de Cuentas | 6 |
-| Endpoints de QR | 4 |
+| Endpoints de QR | 5 |
 | Endpoints de Residentes | 5 |
 | Endpoints de Propietarios | 4 |
 | Endpoints de Miembros | 5 |

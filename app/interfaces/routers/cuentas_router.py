@@ -471,6 +471,7 @@ def obtener_perfil_usuario(
             estado=persona.estado,
             rol=rol,
             vivienda=ViviendaInfo(
+                vivienda_id=vivienda.vivienda_pk,
                 manzana=vivienda.manzana,
                 villa=vivienda.villa
             ),

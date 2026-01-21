@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.infrastructure.db import get_db, SessionLocal
 from app.interfaces.schemas.schemas import (
-    QRGenerarPropio, QRGenerarVisita, QRResponse, AccesoValidarRequest, QRListResponse, QRPaginatedResponse
+    QRGenerarPropio, QRGenerarVisita, QRResponse, AccesoValidarRequest, QRListResponse, QRPaginatedResponse,
+    VisitaResponse, ViviendaVisitasResponse
 )
-from app.infrastructure.db.models import QR as QRModel, Cuenta, Acceso as AccesoModel, ResidenteVivienda, Persona, Visita as VisitaModel
+from app.infrastructure.db.models import QR as QRModel, Cuenta, Acceso as AccesoModel, ResidenteVivienda, Persona, Visita as VisitaModel, MiembroVivienda, Vivienda
 from datetime import datetime
 from app.infrastructure.utils.time_utils import ahora_sin_tz, timedelta
 from app.config import get_settings
@@ -166,18 +167,29 @@ def generar_qr_visita(
         
         vivienda_id = residente.vivienda_reside_fk
         
-        # Crear registro de visita en tabla visita
-        visita = VisitaModel(
-            vivienda_visita_fk=vivienda_id,
-            identificacion=request.visita_identificacion,
-            nombres=request.visita_nombres,
-            apellidos=request.visita_apellidos,
-            usuario_creado=request.usuario_creado
-        )
+        # Verificar si ya existe un visitante con la misma identificación en esta vivienda
+        visita_existente = db.query(VisitaModel).filter(
+            VisitaModel.vivienda_visita_fk == vivienda_id,
+            VisitaModel.identificacion == request.visita_identificacion,
+            VisitaModel.eliminado == False
+        ).first()
         
-        db.add(visita)
-        db.flush()  # Obtener el ID de la visita sin hacer commit
-        visita_id = visita.visita_pk
+        if visita_existente:
+            # Reutilizar el registro existente
+            visita_id = visita_existente.visita_pk
+        else:
+            # Crear nuevo registro de visita en tabla visita
+            visita = VisitaModel(
+                vivienda_visita_fk=vivienda_id,
+                identificacion=request.visita_identificacion,
+                nombres=request.visita_nombres,
+                apellidos=request.visita_apellidos,
+                usuario_creado=request.usuario_creado
+            )
+            
+            db.add(visita)
+            db.flush()  # Obtener el ID de la visita sin hacer commit
+            visita_id = visita.visita_pk
         
         # Generar token
         token = generar_token()
@@ -199,13 +211,18 @@ def generar_qr_visita(
         db.commit()
         db.refresh(qr)
         
+        # Determinar si la visita fue nueva o reutilizada
+        mensaje_visita = "Visitante reutilizado" if visita_existente else "Nuevo visitante registrado"
+        
         return {
             "id": qr.qr_pk,
             "token": token,
             "hora_inicio": dt_inicio.isoformat(),
             "hora_fin": hora_fin.isoformat(),
             "estado": "vigente",
-            "mensaje": "Código QR para visita generado correctamente"
+            "visita_id": visita_id,
+            "mensaje": f"Código QR para visita generado correctamente - {mensaje_visita}",
+            "es_visitante_nuevo": visita_existente is None
         }
     
     except HTTPException:
@@ -316,6 +333,100 @@ def listar_qr_por_cuenta(
             page_size=page_size,
             total_pages=total_pages,
             has_next=has_next
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/visitantes/{persona_id}", response_model=ViviendaVisitasResponse)
+def obtener_visitantes_vivienda(
+    persona_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene la lista de visitantes registrados para la vivienda del usuario
+    El usuario puede ser residente o miembro de familia
+    Retorna identificación, nombres, apellidos y fecha de registro
+    para que puedan ser reutilizados al generar QRs de visita
+    
+    RF-Q04: Consultar visitantes disponibles para reutilización
+    """
+    try:
+        # Obtener persona
+        persona = db.query(Persona).filter(Persona.persona_pk == persona_id).first()
+        if not persona:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Persona no encontrada"
+            )
+        
+        # Determinar vivienda y rol del usuario
+        vivienda_id = None
+        
+        # Verificar si es residente
+        residente = db.query(ResidenteVivienda).filter(
+            ResidenteVivienda.persona_residente_fk == persona_id,
+            ResidenteVivienda.estado == "activo",
+            ResidenteVivienda.eliminado == False
+        ).first()
+        
+        if residente:
+            vivienda_id = residente.vivienda_reside_fk
+        else:
+            # Verificar si es miembro de familia
+            miembro = db.query(MiembroVivienda).filter(
+                MiembroVivienda.persona_miembro_fk == persona_id,
+                MiembroVivienda.estado == "activo",
+                MiembroVivienda.eliminado == False
+            ).first()
+            
+            if miembro:
+                vivienda_id = miembro.vivienda_familia_fk
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Usuario no es residente ni miembro de familia activo"
+                )
+        
+        # Obtener vivienda
+        vivienda = db.query(Vivienda).filter(Vivienda.vivienda_pk == vivienda_id).first()
+        
+        if not vivienda:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Vivienda no encontrada"
+            )
+        
+        # Obtener visitantes de la vivienda
+        visitantes = db.query(VisitaModel).filter(
+            VisitaModel.vivienda_visita_fk == vivienda_id,
+            VisitaModel.eliminado == False
+        ).order_by(VisitaModel.fecha_creado.desc()).all()
+        
+        # Transformar a VisitaResponse
+        visitantes_response = [
+            VisitaResponse(
+                visita_id=v.visita_pk,
+                identificacion=v.identificacion,
+                nombres=v.nombres,
+                apellidos=v.apellidos,
+                fecha_creado=v.fecha_creado
+            )
+            for v in visitantes
+        ]
+        
+        return ViviendaVisitasResponse(
+            vivienda_id=vivienda.vivienda_pk,
+            manzana=vivienda.manzana,
+            villa=vivienda.villa,
+            visitantes=visitantes_response,
+            total=len(visitantes_response)
         )
     
     except HTTPException:
