@@ -7,7 +7,17 @@ class Settings(BaseSettings):
     """Configuración de la aplicación"""
     
     # Base de datos
-    DATABASE_URL: str = "postgresql://admin:password123@localhost:5432/urbanizacion_db"
+    DB_USER: str = "admin"
+    DB_PASSWORD: str = "password123"
+    DB_HOST: str = "localhost"
+    DB_PORT: int = 5432
+    DB_NAME: str = "urbanizacion_db"
+    
+    @property
+    def DATABASE_URL(self) -> str:
+        """Construye la URL de base de datos desde variables de entorno"""
+        return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+    
     SQLALCHEMY_ECHO: bool = False
     
     # Firestore
