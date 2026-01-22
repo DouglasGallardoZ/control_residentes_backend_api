@@ -292,3 +292,65 @@ def eliminar_miembro(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+
+@router.get("/manzana-villa/{manzana}/{villa}", response_model=dict)
+def obtener_miembros_por_ubicacion(
+    manzana: str,
+    villa: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene todos los miembros de familia de una vivienda por manzana y villa
+    """
+    try:
+        # Obtener vivienda
+        vivienda = db.query(Vivienda).filter(
+            Vivienda.manzana == manzana,
+            Vivienda.villa == villa,
+            Vivienda.estado == "activo"
+        ).first()
+        
+        if not vivienda:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Vivienda no encontrada"
+            )
+        
+        # Obtener miembros de familia activos
+        miembros = db.query(MiembroVivienda).filter(
+            MiembroVivienda.vivienda_familia_fk == vivienda.vivienda_pk,
+            # MiembroVivienda.estado == "activo",
+            MiembroVivienda.eliminado == False
+        ).all()
+        
+        miembros_data = []
+        for miembro in miembros:
+            persona = miembro.persona_miembro
+            miembros_data.append({
+                "miembro_id": miembro.miembro_vivienda_pk,
+                "persona_id": persona.persona_pk,
+                "identificacion": persona.identificacion,
+                "nombres": persona.nombres,
+                "apellidos": persona.apellidos,
+                "correo": persona.correo,
+                "celular": persona.celular,
+                "parentesco": miembro.parentesco,
+                "estado": miembro.estado
+            })
+        
+        return {
+            "vivienda_id": vivienda.vivienda_pk,
+            "manzana": vivienda.manzana,
+            "villa": vivienda.villa,
+            "total_miembros": len(miembros_data),
+            "miembros": miembros_data
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )

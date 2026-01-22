@@ -292,3 +292,64 @@ def obtener_fotos_residente(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+
+@router.get("/manzana-villa/{manzana}/{villa}", response_model=dict)
+def obtener_residentes_por_ubicacion(
+    manzana: str,
+    villa: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene todos los residentes de una vivienda por manzana y villa
+    """
+    try:
+        # Obtener vivienda
+        vivienda = db.query(Vivienda).filter(
+            Vivienda.manzana == manzana,
+            Vivienda.villa == villa,
+            Vivienda.estado == "activo"
+        ).first()
+        
+        if not vivienda:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Vivienda no encontrada"
+            )
+        
+        # Obtener residentes activos
+        residentes = db.query(ResidenteVivienda).filter(
+            ResidenteVivienda.vivienda_reside_fk == vivienda.vivienda_pk,
+            # ResidenteVivienda.estado == "activo",
+            ResidenteVivienda.eliminado == False
+        ).all()
+        
+        residentes_data = []
+        for residente in residentes:
+            persona = residente.persona
+            residentes_data.append({
+                "residente_id": residente.residente_vivienda_pk,
+                "persona_id": persona.persona_pk,
+                "identificacion": persona.identificacion,
+                "nombres": persona.nombres,
+                "apellidos": persona.apellidos,
+                "correo": persona.correo,
+                "celular": persona.celular,
+                "estado": residente.estado
+            })
+        
+        return {
+            "vivienda_id": vivienda.vivienda_pk,
+            "manzana": vivienda.manzana,
+            "villa": vivienda.villa,
+            "total_residentes": len(residentes_data),
+            "residentes": residentes_data
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )

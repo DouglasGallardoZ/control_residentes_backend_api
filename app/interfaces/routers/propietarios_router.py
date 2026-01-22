@@ -6,9 +6,16 @@ from app.interfaces.schemas.schemas import (
 )
 from app.infrastructure.db.models import Persona, PropietarioVivienda, ResidenteVivienda, Vivienda
 from datetime import datetime
+from pydantic import BaseModel
 from app.infrastructure.utils.time_utils import ahora_sin_tz
 
 router = APIRouter(prefix="/api/v1/propietarios", tags=["Propietarios"])
+
+
+class BajaRequest(BaseModel):
+    """Schema para baja de propietario"""
+    motivo: str
+    usuario_actualizado: str = "api_user"
 
 
 @router.post("", response_model=dict)
@@ -347,8 +354,7 @@ def actualizar_propietario(
 @router.post("/{propietario_id}/baja", response_model=dict)
 def baja_propietario(
     propietario_id: int,
-    motivo: str,
-    usuario_actualizado: str = "api_user",
+    request: BajaRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -356,7 +362,7 @@ def baja_propietario(
     RF-P04: Desactiva propietario e inactiva también al cónyuge si existe
     """
     try:
-        if not motivo:
+        if not request.motivo:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="El motivo de baja es obligatorio"
@@ -382,8 +388,8 @@ def baja_propietario(
         # Cambiar propietario a inactivo
         propietario.estado = "inactivo"
         propietario.fecha_actualizado = ahora_sin_tz()
-        propietario.usuario_actualizado = usuario_actualizado
-        propietario.motivo_eliminado = motivo
+        propietario.usuario_actualizado = request.usuario_actualizado
+        propietario.motivo_eliminado = request.motivo
         
         # Obtener y desactivar cónyuge si existe
         conyuge_procesado = False
@@ -418,8 +424,8 @@ def baja_propietario(
                 if conyuge_prop:
                     conyuge_prop.estado = "inactivo"
                     conyuge_prop.fecha_actualizado = ahora_sin_tz()
-                    conyuge_prop.usuario_actualizado = usuario_actualizado
-                    conyuge_prop.motivo_eliminado = f"Baja asociada a propietario principal: {motivo}"
+                    conyuge_prop.usuario_actualizado = request.usuario_actualizado
+                    conyuge_prop.motivo_eliminado = f"Baja asociada a propietario principal: {request.motivo}"
                     conyuge_procesado = True
         
         db.commit()
@@ -428,7 +434,7 @@ def baja_propietario(
             "mensaje": "Propietario dado de baja correctamente",
             "propietario_id": propietario_id,
             "conyuge_procesado": conyuge_procesado,
-            "motivo": motivo
+            "motivo": request.motivo
         }
     
     except HTTPException:
@@ -576,6 +582,67 @@ def cambio_propietario_vivienda(
         raise
     except Exception as e:
         db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/manzana-villa/{manzana}/{villa}", response_model=dict)
+def obtener_propietarios_por_ubicacion(
+    manzana: str,
+    villa: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene todos los propietarios de una vivienda por manzana y villa
+    """
+    try:
+        # Obtener vivienda
+        vivienda = db.query(Vivienda).filter(
+            Vivienda.manzana == manzana,
+            Vivienda.villa == villa,
+            Vivienda.estado == "activo"
+        ).first()
+        
+        if not vivienda:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Vivienda no encontrada"
+            )
+        
+        # Obtener propietarios activos
+        propietarios = db.query(PropietarioVivienda).filter(
+            PropietarioVivienda.vivienda_propiedad_fk == vivienda.vivienda_pk,
+            # PropietarioVivienda.estado == "activo",
+            PropietarioVivienda.eliminado == False
+        ).all()
+        
+        propietarios_data = []
+        for propietario in propietarios:
+            persona = propietario.persona
+            propietarios_data.append({
+                "propietario_id": propietario.propietario_vivienda_pk,
+                "persona_id": persona.persona_pk,
+                "identificacion": persona.identificacion,
+                "nombres": persona.nombres,
+                "apellidos": persona.apellidos,
+                "correo": persona.correo,
+                "celular": persona.celular,
+                "estado": propietario.estado
+            })
+        
+        return {
+            "vivienda_id": vivienda.vivienda_pk,
+            "manzana": vivienda.manzana,
+            "villa": vivienda.villa,
+            "total_propietarios": len(propietarios_data),
+            "propietarios": propietarios_data
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)

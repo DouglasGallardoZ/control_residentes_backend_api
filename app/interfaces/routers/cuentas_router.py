@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.infrastructure.db import get_db
-from app.infrastructure.db.models import Cuenta, Persona, MiembroVivienda, EventoCuenta, ResidenteVivienda
+from app.infrastructure.db.models import Cuenta, Persona, MiembroVivienda, EventoCuenta, ResidenteVivienda, Vivienda, PropietarioVivienda
 from app.interfaces.schemas.schemas import PerfilUsuarioResponse, ViviendaInfo
 from datetime import datetime
 from pydantic import BaseModel
@@ -477,7 +477,7 @@ def eliminar_cuenta(
         )
 
 
-@router.get("/perfil/{firebase_uid}", response_model=PerfilUsuarioResponse)
+@router.get("/perfil/{firebase_uid}", response_model=dict)
 def obtener_perfil_usuario(
     firebase_uid: str,
     db: Session = Depends(get_db)
@@ -487,10 +487,15 @@ def obtener_perfil_usuario(
     
     Retorna:
     - Información personal (nombres, identificación, correo, celular)
-    - Rol (Residente o Miembro de Familia)
-    - Información de vivienda (manzana y villa)
+    - Rol (Residente, Miembro de Familia, o Admin)
+    - Información de vivienda (manzana y villa) - si aplica
     - Parentesco (si es miembro de familia)
     - Estado y fecha de creación
+    
+    Soporta:
+    - Residentes con vivienda
+    - Miembros de familia con vivienda
+    - Admins/Usuarios con solo cuenta+persona (sin vivienda)
     """
     try:
         # Obtener cuenta por Firebase UID
@@ -520,7 +525,7 @@ def obtener_perfil_usuario(
         # Determinar rol y obtener información de vivienda
         rol = None
         parentesco = None
-        vivienda = None
+        vivienda_info = None
         
         # Verificar si es residente
         residente = db.query(ResidenteVivienda).filter(
@@ -532,6 +537,12 @@ def obtener_perfil_usuario(
         if residente:
             rol = "residente"
             vivienda = residente.vivienda
+            if vivienda:
+                vivienda_info = {
+                    "vivienda_id": vivienda.vivienda_pk,
+                    "manzana": vivienda.manzana,
+                    "villa": vivienda.villa
+                }
         else:
             # Verificar si es miembro de familia
             miembro = db.query(MiembroVivienda).filter(
@@ -544,35 +555,238 @@ def obtener_perfil_usuario(
                 rol = "miembro_familia"
                 parentesco = miembro.parentesco
                 vivienda = miembro.vivienda
+                if vivienda:
+                    vivienda_info = {
+                        "vivienda_id": vivienda.vivienda_pk,
+                        "manzana": vivienda.manzana,
+                        "villa": vivienda.villa
+                    }
             else:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Usuario no es residente ni miembro de familia activo"
-                )
+                # Es un usuario con solo cuenta+persona (admin u otro tipo)
+                rol = "admin"
+        
+        # Construir respuesta
+        respuesta = {
+            "persona_id": persona.persona_pk,
+            "identificacion": persona.identificacion,
+            "nombres": persona.nombres,
+            "apellidos": persona.apellidos,
+            "correo": persona.correo,
+            "celular": persona.celular,
+            "estado": persona.estado,
+            "rol": rol,
+            "vivienda": vivienda_info,
+            "parentesco": parentesco,
+            "fecha_creado": persona.fecha_creado.isoformat() if persona.fecha_creado else None
+        }
+        
+        return respuesta
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+
+@router.get("/usuario/por-correo/{correo}", response_model=dict)
+def obtener_usuario_por_correo(
+    correo: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene la información de un usuario por su correo electrónico
+    Busca en personas que tengan cuenta activa
+    """
+    try:
+        # Obtener persona por correo
+        persona = db.query(Persona).filter(
+            Persona.correo == correo,
+            Persona.estado == "activo"
+        ).first()
+        
+        if not persona:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Usuario no encontrado con ese correo"
+            )
+        
+        # Obtener cuenta asociada
+        cuenta = db.query(Cuenta).filter(
+            Cuenta.persona_titular_fk == persona.persona_pk,
+            # Cuenta.estado == "activo",
+            Cuenta.eliminado == False
+        ).first()
+        
+        if not cuenta:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="El usuario no tiene una cuenta activa"
+            )
+        
+        # Determinar rol
+        rol = None
+        parentesco = None
+        vivienda_info = None
+        
+        # Verificar si es residente
+        residente = db.query(ResidenteVivienda).filter(
+            ResidenteVivienda.persona_residente_fk == persona.persona_pk,
+            ResidenteVivienda.estado == "activo",
+            ResidenteVivienda.eliminado == False
+        ).first()
+        
+        if residente:
+            rol = "residente"
+            vivienda = residente.vivienda
+            if vivienda:
+                vivienda_info = {
+                    "vivienda_id": vivienda.vivienda_pk,
+                    "manzana": vivienda.manzana,
+                    "villa": vivienda.villa
+                }
+        else:
+            # Verificar si es miembro de familia
+            miembro = db.query(MiembroVivienda).filter(
+                MiembroVivienda.persona_miembro_fk == persona.persona_pk,
+                MiembroVivienda.estado == "activo",
+                MiembroVivienda.eliminado == False
+            ).first()
+            
+            if miembro:
+                rol = "miembro_familia"
+                parentesco = miembro.parentesco
+                vivienda = miembro.vivienda
+                if vivienda:
+                    vivienda_info = {
+                        "vivienda_id": vivienda.vivienda_pk,
+                        "manzana": vivienda.manzana,
+                        "villa": vivienda.villa
+                    }
+            else:
+                rol = "admin"
+        
+        resultado = {
+            "usuario_id": cuenta.cuenta_pk,
+            "persona_id": persona.persona_pk,
+            "identificacion": persona.identificacion,
+            "nombres": persona.nombres,
+            "apellidos": persona.apellidos,
+            "correo": persona.correo,
+            "celular": persona.celular,
+            "tipo": rol,
+            "estado": cuenta.estado
+        }
+        
+        # Agregar parentesco si es miembro de familia
+        if parentesco:
+            resultado["parentesco"] = parentesco
+        
+        return resultado
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/vivienda/{manzana}/{villa}/usuarios", response_model=dict)
+def obtener_usuarios_vivienda(
+    manzana: str,
+    villa: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene todos los usuarios (residentes y miembros con cuenta) de una vivienda por manzana y villa
+    """
+    try:
+        # Obtener vivienda
+        vivienda = db.query(Vivienda).filter(
+            Vivienda.manzana == manzana,
+            Vivienda.villa == villa,
+            Vivienda.estado == "activo"
+        ).first()
         
         if not vivienda:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=status.HTTP_404_NOT_FOUND,
                 detail="Vivienda no encontrada"
             )
         
-        return PerfilUsuarioResponse(
-            persona_id=persona.persona_pk,
-            identificacion=persona.identificacion,
-            nombres=persona.nombres,
-            apellidos=persona.apellidos,
-            correo=persona.correo,
-            celular=persona.celular,
-            estado=persona.estado,
-            rol=rol,
-            vivienda=ViviendaInfo(
-                vivienda_id=vivienda.vivienda_pk,
-                manzana=vivienda.manzana,
-                villa=vivienda.villa
-            ),
-            parentesco=parentesco,
-            fecha_creado=persona.fecha_creado
-        )
+        usuarios = []
+        
+        # Obtener residentes con cuenta
+        residentes = db.query(ResidenteVivienda).filter(
+            ResidenteVivienda.vivienda_reside_fk == vivienda.vivienda_pk,
+            ResidenteVivienda.estado == "activo",
+            ResidenteVivienda.eliminado == False
+        ).all()
+        
+        for residente in residentes:
+            cuenta = db.query(Cuenta).filter(
+                Cuenta.persona_titular_fk == residente.persona_residente_fk,
+                # Cuenta.estado == "activo",
+                Cuenta.eliminado == False
+            ).first()
+            
+            if cuenta:
+                persona = residente.persona
+                usuarios.append({
+                    "usuario_id": cuenta.cuenta_pk,
+                    "persona_id": persona.persona_pk,
+                    "identificacion": persona.identificacion,
+                    "nombres": persona.nombres,
+                    "apellidos": persona.apellidos,
+                    "correo": persona.correo,
+                    "celular": persona.celular,
+                    "tipo": "residente",
+                    "estado": cuenta.estado
+                })
+        
+        # Obtener miembros de familia con cuenta
+        miembros = db.query(MiembroVivienda).filter(
+            MiembroVivienda.vivienda_familia_fk == vivienda.vivienda_pk,
+            MiembroVivienda.estado == "activo",
+            MiembroVivienda.eliminado == False
+        ).all()
+        
+        for miembro in miembros:
+            cuenta = db.query(Cuenta).filter(
+                Cuenta.persona_titular_fk == miembro.persona_miembro_fk,
+                # Cuenta.estado == "activo",
+                Cuenta.eliminado == False
+            ).first()
+            
+            if cuenta:
+                persona = miembro.persona_miembro
+                usuario_info = {
+                    "usuario_id": cuenta.cuenta_pk,
+                    "persona_id": persona.persona_pk,
+                    "identificacion": persona.identificacion,
+                    "nombres": persona.nombres,
+                    "apellidos": persona.apellidos,
+                    "correo": persona.correo,
+                    "celular": persona.celular,
+                    "tipo": "miembro_familia",
+                    "estado": cuenta.estado
+                }
+                if miembro.parentesco:
+                    usuario_info["parentesco"] = miembro.parentesco
+                usuarios.append(usuario_info)
+        
+        return {
+            "vivienda_id": vivienda.vivienda_pk,
+            "manzana": vivienda.manzana,
+            "villa": vivienda.villa,
+            "total_usuarios": len(usuarios),
+            "usuarios": usuarios
+        }
     
     except HTTPException:
         raise
