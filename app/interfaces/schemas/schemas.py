@@ -79,7 +79,8 @@ class ConyugeCreate(PersonaBase):
 
 # ============ RESIDENTE ============
 class ResidenteCreate(PersonaBase):
-    vivienda_id: int
+    manzana: str
+    villa: str
     usuario_creado: str
     doc_autorizacion_pdf: str
 

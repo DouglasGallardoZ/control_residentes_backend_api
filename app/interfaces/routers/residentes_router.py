@@ -21,12 +21,28 @@ def registrar_residente(
     RF-R01
     """
     try:
-        # Validar vivienda
-        vivienda = db.query(Vivienda).filter(Vivienda.vivienda_pk == request.vivienda_id).first()
-        if not vivienda or not vivienda.estado == "activo":
+        # Validar vivienda por manzana y villa
+        vivienda = db.query(Vivienda).filter(
+            Vivienda.manzana == request.manzana,
+            Vivienda.villa == request.villa,
+            Vivienda.estado == "activo"
+        ).first()
+        if not vivienda:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Vivienda no encontrada o inactiva"
+            )
+        
+        # Validar que no exista residente activo en esa vivienda
+        residente_existente = db.query(ResidenteVivienda).filter(
+            ResidenteVivienda.vivienda_reside_fk == vivienda.vivienda_pk,
+            ResidenteVivienda.estado == "activo",
+            ResidenteVivienda.eliminado == False
+        ).first()
+        if residente_existente:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya existe un residente activo registrado en esta vivienda"
             )
         
         # Validar que no exista persona con mismo documento
@@ -61,7 +77,7 @@ def registrar_residente(
         
         # Crear residente
         residente = ResidenteVivienda(
-            vivienda_reside_fk=request.vivienda_id,
+            vivienda_reside_fk=vivienda.vivienda_pk,
             persona_residente_fk=persona.persona_pk,
             doc_autorizacion_pdf=request.doc_autorizacion_pdf,
             estado="activo",
