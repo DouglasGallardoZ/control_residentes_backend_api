@@ -1435,14 +1435,24 @@ Registra una nueva persona como residente en una vivienda.
   "correo": "juan.perez@example.com",
   "celular": "+593987654321",
   "direccion_alternativa": "Calle 5 # 123",
-  "vivienda_id": 1,
+  "manzana": "A",
+  "villa": "101",
   "doc_autorizacion_pdf": "https://storage.com/doc.pdf",
   "usuario_creado": "admin_001"
 }
 ```
 
+**Request Fields:**
+| Campo | Tipo | Requerido | Descripción |
+|-------|------|----------|-------------|
+| manzana | string | ✅ | Manzana de la vivienda |
+| villa | string | ✅ | Villa de la vivienda |
+| doc_autorizacion_pdf | string | ❌ | URL del documento de autorización |
+| usuario_creado | string | ⚙️ | Usuario que realiza la acción (default: "api_user") |
+
 **Validaciones:**
-- ✅ Vivienda debe existir y estar activa
+- ✅ Vivienda debe existir y estar activa (se busca por manzana y villa)
+- ✅ No debe existir residente activo en esa vivienda
 - ✅ Identificación debe ser única (no puede existir persona activa con mismo documento)
 - ✅ Email debe ser válido (formato)
 - ✅ Teléfono <= 15 caracteres
@@ -1468,6 +1478,11 @@ Registra una nueva persona como residente en una vivienda.
 {
   "detail": "El identificación ya está registrada"
 }
+
+// 409 - Ya existe residente activo
+{
+  "detail": "Ya existe un residente activo registrado en esta vivienda"
+}
 ```
 
 ---
@@ -1489,10 +1504,14 @@ Desactiva un residente (cambiar estado a "inactivo"). El residente no puede acce
 **Request Body:**
 ```json
 {
-  "motivo": "Cambio de domicilio",
   "usuario_actualizado": "admin_001"
 }
 ```
+
+**Request Fields:**
+| Campo | Tipo | Requerido | Descripción | Defecto |
+|-------|------|----------|-------------|---------|
+| usuario_actualizado | string | ✅ | Usuario que realiza la acción | - |
 
 **Success Response (200 OK):**
 ```json
@@ -1513,9 +1532,6 @@ Desactiva un residente (cambiar estado a "inactivo"). El residente no puede acce
 }
 ```
 
-**TODO Pendiente:**
-- Desactivar automáticamente miembros de familia asociados
-
 ---
 
 ### 3. Reactivar Residente
@@ -1527,19 +1543,39 @@ Desactiva un residente (cambiar estado a "inactivo"). El residente no puede acce
 **Descripción:**
 Reactiva un residente previamente desactivado.
 
+**Path Parameters:**
+```
+{residente_id} = ID de registro en tabla ResidenteVivienda
+```
+
 **Request Body:**
 ```json
 {
-  "motivo": "Retorno a domicilio anterior",
   "usuario_actualizado": "admin_001"
 }
 ```
+
+**Request Fields:**
+| Campo | Tipo | Requerido | Descripción | Defecto |
+|-------|------|----------|-------------|---------|
+| usuario_actualizado | string | ✅ | Usuario que realiza la acción | - |
 
 **Success Response (200 OK):**
 ```json
 {
   "mensaje": "Residente reactivado correctamente",
   "residente_id": 10
+}
+```
+
+**Validaciones:**
+- ✅ Residente debe existir
+- ✅ No puede estar ya activo
+
+**Error Responses:**
+```json
+{
+  "detail": "El residente ya se encuentra activo"
 }
 ```
 
@@ -1701,11 +1737,12 @@ Registra un nuevo propietario y lo asigna a una vivienda identificada por su man
 }
 ```
 
-**Query Parameters:**
+**Request Fields:**
 | Campo | Tipo | Requerido | Descripción |
 |-------|------|----------|-------------|
 | manzana | string | ✅ | Manzana de la vivienda |
 | villa | string | ✅ | Villa de la vivienda |
+| usuario_creado | string | ⚙️ | Usuario que realiza la acción (default: "api_user") |
 
 **Validaciones:**
 - ✅ Vivienda debe existir (se busca por manzana y villa)
@@ -1805,6 +1842,13 @@ Registra un cónyuge como copropietario de la vivienda.
 }
 ```
 
+**Request Fields:**
+| Campo | Tipo | Requerido | Descripción |
+|-------|------|----------|-------------|
+| identificacion | string | ✅ | Identificación de la persona |
+| nombres | string | ✅ | Nombre(s) del cónyuge |
+| usuario_creado | string | ⚙️ | Usuario que realiza la acción (default: "api_user") |
+
 **Success Response (201 Created):**
 ```json
 {
@@ -1812,6 +1856,38 @@ Registra un cónyuge como copropietario de la vivienda.
   "persona_id": 3,
   "propietario_id": 6,
   "mensaje": "Cónyuge registrado como copropietario"
+}
+```
+
+**Ejemplo en Dart/Flutter:**
+```dart
+Future<void> registrarConyuge(int propietarioId) async {
+  final response = await http.post(
+    Uri.parse('$baseUrl/propietarios/$propietarioId/conyuge'),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $accessToken',
+    },
+    body: jsonEncode({
+      'identificacion': '1111111111',
+      'tipo_identificacion': 'cedula',
+      'nombres': 'Carlos',
+      'apellidos': 'García Rodríguez',
+      'fecha_nacimiento': '1988-03-10',
+      'nacionalidad': 'Ecuador',
+      'correo': 'carlos.garcia@example.com',
+      'celular': '+593991234567',
+      'direccion_alternativa': 'Avenida 10 # 456',
+      'usuario_creado': 'flutter_app'
+    }),
+  );
+
+  if (response.statusCode == 201) {
+    final data = jsonDecode(response.body);
+    print('Cónyuge registrado: ${data['persona_id']}');
+  } else {
+    throw Exception('Error: ${response.body}');
+  }
 }
 ```
 
@@ -1884,6 +1960,11 @@ Elimina (soft delete) un propietario de la vivienda.
 **Descripción:**
 Actualiza la información de contacto y dirección de un propietario.
 
+**Path Parameters:**
+```
+{propietario_id} = ID del propietario (de tabla PropietarioVivienda)
+```
+
 **Request Body:**
 ```json
 {
@@ -1894,6 +1975,14 @@ Actualiza la información de contacto y dirección de un propietario.
 }
 ```
 
+**Request Fields:**
+| Campo | Tipo | Requerido | Descripción |
+|-------|------|----------|-------------|
+| correo | string | ❌ | Nuevo email del propietario |
+| celular | string | ❌ | Nuevo teléfono del propietario |
+| direccion_alternativa | string | ❌ | Dirección alternativa |
+| usuario_actualizado | string | ⚙️ | Usuario que realiza la acción (default: "api_user") |
+
 **Success Response (200 OK):**
 ```json
 {
@@ -1901,6 +1990,18 @@ Actualiza la información de contacto y dirección de un propietario.
   "mensaje": "Información del propietario actualizada",
   "propietario_id": 5,
   "correo": "nuevo.correo@example.com"
+}
+```
+
+**Validaciones:**
+- ✅ Propietario debe existir
+- ✅ Email debe ser válido (si se proporciona)
+- ✅ Teléfono <= 15 caracteres (si se proporciona)
+
+**Error Responses:**
+```json
+{
+  "detail": "Propietario no encontrado"
 }
 ```
 
@@ -1954,13 +2055,20 @@ Transfiere la propiedad: inactiva propietario anterior, activa nuevo propietario
 **Request Body:**
 ```json
 {
-  "propietario_anterior_id": 5,
-  "persona_nueva_id": 10,
   "vivienda_id": 1,
-  "motivo": "Venta de propiedad",
+  "nuevo_propietario_id": 10,
+  "motivo_cambio": "Venta de propiedad",
   "usuario_actualizado": "admin_001"
 }
 ```
+
+**Request Fields:**
+| Campo | Tipo | Requerido | Descripción |
+|-------|------|----------|-------------|
+| vivienda_id | integer | ✅ | ID de la vivienda a transferir |
+| nuevo_propietario_id | integer | ✅ | ID de la persona que será nuevo propietario |
+| motivo_cambio | string | ✅ | Motivo de la transferencia |
+| usuario_actualizado | string | ⚙️ | Usuario que realiza la operación (default: "api_user") |
 
 **Cascada Logic:**
 - Propietario anterior → Inactivo
@@ -2197,16 +2305,20 @@ Desactiva un miembro de familia.
 **Request Body:**
 ```json
 {
-  "motivo": "Cambio de residencia",
   "usuario_actualizado": "admin_001"
 }
 ```
 
+**Request Fields:**
+| Campo | Tipo | Requerido | Descripción |
+|-------|------|----------|-------------|
+| usuario_actualizado | string | ⚙️ | Usuario que realiza la acción (default: "api_user") |
+
 **Success Response (200 OK):**
 ```json
 {
-  "mensaje": "Miembro de familia desactivado correctamente",
-  "miembro_id": 20
+  "success": true,
+  "mensaje": "Miembro desactivado correctamente"
 }
 ```
 
@@ -2223,16 +2335,20 @@ Reactiva un miembro de familia previamente desactivado.
 **Request Body:**
 ```json
 {
-  "motivo": "Retorno de residencia",
   "usuario_actualizado": "admin_001"
 }
 ```
 
+**Request Fields:**
+| Campo | Tipo | Requerido | Descripción |
+|-------|------|----------|-------------|
+| usuario_actualizado | string | ⚙️ | Usuario que realiza la acción (default: "api_user") |
+
 **Success Response (200 OK):**
 ```json
 {
-  "mensaje": "Miembro de familia reactivado correctamente",
-  "miembro_id": 20
+  "success": true,
+  "mensaje": "Miembro reactivado correctamente"
 }
 ```
 
