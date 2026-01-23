@@ -3,20 +3,52 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db import get_db
 from app.interfaces.schemas.schemas import PersonaCreate
 from app.infrastructure.db.models import Persona, ResidenteVivienda, MiembroVivienda, Vivienda
-from datetime import datetime
+from datetime import datetime, date
 from app.infrastructure.utils.time_utils import ahora_sin_tz
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/v1/miembros", tags=["Miembros de Familia"])
+
+
+class AgregarMiembroFamiliaRequest(BaseModel):
+    """Schema para agregar miembro de familia"""
+    # Ubicación de la vivienda
+    manzana: str
+    villa: str
+    
+    # Datos de la persona
+    identificacion: str
+    tipo_identificacion: str
+    nombres: str
+    apellidos: str
+    fecha_nacimiento: date
+    nacionalidad: str = "Ecuador"
+    correo: str = None
+    celular: str = None
+    direccion_alternativa: str = None
+    
+    # Parentesco
+    parentesco: str
+    parentesco_otro_desc: str = None
+    
+    # Auditoría
+    usuario_creado: str = "api_user"
+
+
+class DesactivarMiembroRequest(BaseModel):
+    """Schema para desactivar miembro de familia"""
+    usuario_actualizado: str = "api_user"
+
+
+class ReactivarMiembroRequest(BaseModel):
+    """Schema para reactivar miembro de familia"""
+    usuario_actualizado: str = "api_user"
 
 
 @router.post("/{residente_id}/agregar", response_model=dict)
 def agregar_miembro_familia(
     residente_id: int,
-    vivienda_id: int,
-    persona_data: PersonaCreate,
-    parentesco: str,
-    usuario_creado: str,
-    parentesco_otro_desc: str = None,
+    request: AgregarMiembroFamiliaRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -26,19 +58,24 @@ def agregar_miembro_familia(
     try:
         # Validar parentescos válidos
         parentescos_validos = ['padre', 'madre', 'esposo', 'esposa', 'hijo', 'hija', 'otro']
-        if parentesco not in parentescos_validos:
+        if request.parentesco not in parentescos_validos:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Parentesco inválido. Válidos: {', '.join(parentescos_validos)}"
             )
         
-        # Validar vivienda
-        vivienda = db.query(Vivienda).filter(Vivienda.vivienda_pk == vivienda_id).first()
+        # Validar vivienda por manzana y villa
+        vivienda = db.query(Vivienda).filter(
+            Vivienda.manzana == request.manzana,
+            Vivienda.villa == request.villa
+        ).first()
         if not vivienda:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Vivienda no encontrada"
+                detail=f"Vivienda no encontrada para manzana '{request.manzana}' y villa '{request.villa}'"
             )
+        
+        vivienda_id = vivienda.vivienda_pk
         
         # Validar residente existe
         residente = db.query(ResidenteVivienda).filter(
@@ -53,26 +90,26 @@ def agregar_miembro_familia(
         
         # Validar que no exista persona con mismo documento
         persona_existe = db.query(Persona).filter(
-            Persona.identificacion == persona_data.identificacion
+            Persona.identificacion == request.identificacion
         ).first()
         if persona_existe:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Ya existe una persona con identificación {persona_data.identificacion}"
+                detail=f"Ya existe una persona con identificación {request.identificacion}"
             )
         
         # Crear persona
         persona = Persona(
-            identificacion=persona_data.identificacion,
-            tipo_identificacion=persona_data.tipo_identificacion,
-            nacionalidad=persona_data.nacionalidad or "Ecuador",
-            nombres=persona_data.nombres,
-            apellidos=persona_data.apellidos,
-            fecha_nacimiento=persona_data.fecha_nacimiento,
-            correo=persona_data.correo,
-            celular=persona_data.celular,
-            direccion_alternativa=persona_data.direccion_alternativa,
-            usuario_creado=usuario_creado
+            identificacion=request.identificacion,
+            tipo_identificacion=request.tipo_identificacion,
+            nacionalidad=request.nacionalidad,
+            nombres=request.nombres,
+            apellidos=request.apellidos,
+            fecha_nacimiento=request.fecha_nacimiento,
+            correo=request.correo,
+            celular=request.celular,
+            direccion_alternativa=request.direccion_alternativa,
+            usuario_creado=request.usuario_creado
         )
         
         db.add(persona)
@@ -83,13 +120,13 @@ def agregar_miembro_familia(
             vivienda_familia_fk=vivienda_id,
             persona_residente_fk=residente.persona_residente_fk,
             persona_miembro_fk=persona.persona_pk,
-            parentesco=parentesco,
-            parentesco_otro_desc=parentesco_otro_desc if parentesco == 'otro' else None,
-            usuario_creado=usuario_creado
+            parentesco=request.parentesco,
+            parentesco_otro_desc=request.parentesco_otro_desc if request.parentesco == 'otro' else None,
+            usuario_creado=request.usuario_creado
         )
         
         db.add(miembro)
-        db.flush()  # Flush first to catch constraint errors
+        db.flush()
         db.commit()
         db.refresh(miembro)
         
@@ -97,6 +134,7 @@ def agregar_miembro_familia(
             "success": True,
             "miembro_id": miembro.miembro_vivienda_pk,
             "persona_id": persona.persona_pk,
+            "vivienda_id": vivienda_id,
             "mensaje": "Miembro de familia agregado exitosamente"
         }
     
@@ -170,7 +208,7 @@ def obtener_miembros_familia(
 @router.post("/{miembro_id}/desactivar", response_model=dict)
 def desactivar_miembro(
     miembro_id: int,
-    usuario_actualizado: str = "api_user",
+    request: DesactivarMiembroRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -190,7 +228,7 @@ def desactivar_miembro(
         
         miembro.estado = "inactivo"
         miembro.fecha_actualizado = ahora_sin_tz()
-        miembro.usuario_actualizado = usuario_actualizado
+        miembro.usuario_actualizado = request.usuario_actualizado
         
         db.commit()
         
@@ -212,7 +250,7 @@ def desactivar_miembro(
 @router.post("/{miembro_id}/reactivar", response_model=dict)
 def reactivar_miembro(
     miembro_id: int,
-    usuario_actualizado: str = "api_user",
+    request: ReactivarMiembroRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -232,7 +270,7 @@ def reactivar_miembro(
         
         miembro.estado = "activo"
         miembro.fecha_actualizado = ahora_sin_tz()
-        miembro.usuario_actualizado = usuario_actualizado
+        miembro.usuario_actualizado = request.usuario_actualizado
         
         db.commit()
         

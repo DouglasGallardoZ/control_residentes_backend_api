@@ -5,11 +5,49 @@ from app.interfaces.schemas.schemas import (
     PersonaCreate, PersonaResponse
 )
 from app.infrastructure.db.models import Persona, PropietarioVivienda, ResidenteVivienda, Vivienda
-from datetime import datetime
+from datetime import datetime, date
 from pydantic import BaseModel
 from app.infrastructure.utils.time_utils import ahora_sin_tz
 
 router = APIRouter(prefix="/api/v1/propietarios", tags=["Propietarios"])
+
+
+class RegistrarPropietarioRequest(BaseModel):
+    """Schema para registrar propietario"""
+    # Datos de la persona
+    identificacion: str
+    tipo_identificacion: str
+    nombres: str
+    apellidos: str
+    fecha_nacimiento: date
+    nacionalidad: str = "Ecuador"
+    correo: str
+    celular: str
+    direccion_alternativa: str = None
+    
+    # Ubicación de la vivienda
+    manzana: str
+    villa: str
+    
+    # Auditoría
+    usuario_creado: str = "api_user"
+
+
+class RegistrarConyyugeRequest(BaseModel):
+    """Schema para registrar cónyuge como copropietario"""
+    # Datos de la persona
+    identificacion: str
+    tipo_identificacion: str
+    nombres: str
+    apellidos: str
+    fecha_nacimiento: date
+    nacionalidad: str = "Ecuador"
+    correo: str
+    celular: str
+    direccion_alternativa: str = None
+    
+    # Auditoría
+    usuario_creado: str = "api_user"
 
 
 class BajaRequest(BaseModel):
@@ -18,11 +56,25 @@ class BajaRequest(BaseModel):
     usuario_actualizado: str = "api_user"
 
 
+class CambioPropiedadRequest(BaseModel):
+    """Schema para cambio de propietario"""
+    vivienda_id: int
+    nuevo_propietario_id: int
+    motivo_cambio: str
+    usuario_actualizado: str = "api_user"
+
+
+class ActualizarPropietarioRequest(BaseModel):
+    """Schema para actualizar propietario"""
+    correo_nuevo: str = None
+    celular_nuevo: str = None
+    direccion_alternativa: str = None
+    usuario_actualizado: str = "api_user"
+
+
 @router.post("", response_model=dict)
 def registrar_propietario(
-    persona_data: PersonaCreate,
-    vivienda_id: int,
-    usuario_creado: str,
+    request: RegistrarPropietarioRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -30,36 +82,41 @@ def registrar_propietario(
     RF-P01: Registrar propietario
     """
     try:
-        # Validar vivienda
-        vivienda = db.query(Vivienda).filter(Vivienda.vivienda_pk == vivienda_id).first()
+        # Validar vivienda por manzana y villa
+        vivienda = db.query(Vivienda).filter(
+            Vivienda.manzana == request.manzana,
+            Vivienda.villa == request.villa
+        ).first()
         if not vivienda:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Vivienda no encontrada"
+                detail=f"Vivienda no encontrada para manzana '{request.manzana}' y villa '{request.villa}'"
             )
+        
+        vivienda_id = vivienda.vivienda_pk
         
         # Validar que no exista persona con mismo documento
         persona_existe = db.query(Persona).filter(
-            Persona.identificacion == persona_data.identificacion
+            Persona.identificacion == request.identificacion
         ).first()
         if persona_existe:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Ya existe una persona con identificación {persona_data.identificacion}"
+                detail=f"Ya existe una persona con identificación {request.identificacion}"
             )
         
         # Crear persona
         persona = Persona(
-            identificacion=persona_data.identificacion,
-            tipo_identificacion=persona_data.tipo_identificacion,
-            nacionalidad=persona_data.nacionalidad or "Ecuador",
-            nombres=persona_data.nombres,
-            apellidos=persona_data.apellidos,
-            fecha_nacimiento=persona_data.fecha_nacimiento,
-            correo=persona_data.correo,
-            celular=persona_data.celular,
-            direccion_alternativa=persona_data.direccion_alternativa,
-            usuario_creado=usuario_creado
+            identificacion=request.identificacion,
+            tipo_identificacion=request.tipo_identificacion,
+            nacionalidad=request.nacionalidad,
+            nombres=request.nombres,
+            apellidos=request.apellidos,
+            fecha_nacimiento=request.fecha_nacimiento,
+            correo=request.correo,
+            celular=request.celular,
+            direccion_alternativa=request.direccion_alternativa,
+            usuario_creado=request.usuario_creado
         )
         
         db.add(persona)
@@ -69,20 +126,20 @@ def registrar_propietario(
         propietario = PropietarioVivienda(
             vivienda_propiedad_fk=vivienda_id,
             persona_propietario_fk=persona.persona_pk,
-            usuario_creado=usuario_creado
+            usuario_creado=request.usuario_creado
         )
         
         db.add(propietario)
-        db.flush()
+        # db.flush()
         
-        # Registrar propietario también como residente
-        residente = ResidenteVivienda(
-            vivienda_reside_fk=vivienda_id,
-            persona_residente_fk=persona.persona_pk,
-            estado='activo',
-            usuario_creado=usuario_creado
-        )
-        db.add(residente)
+        # # Registrar propietario también como residente
+        # residente = ResidenteVivienda(
+        #     vivienda_reside_fk=vivienda_id,
+        #     persona_residente_fk=persona.persona_pk,
+        #     estado='activo',
+        #     usuario_creado=request.usuario_creado
+        # )
+        # db.add(residente)
         db.commit()
         db.refresh(persona)
         
@@ -90,8 +147,8 @@ def registrar_propietario(
             "success": True,
             "persona_id": persona.persona_pk,
             "propietario_id": propietario.propietario_vivienda_pk,
-            "residente_id": residente.residente_vivienda_pk,
-            "mensaje": "Propietario registrado y automáticamente registrado como residente"
+            "vivienda_id": vivienda_id,
+            "mensaje": "Propietario registrado con exito"
         }
     
     except HTTPException:
@@ -107,8 +164,7 @@ def registrar_propietario(
 @router.post("/{propietario_id}/conyuge", response_model=dict)
 def registrar_conyuge_propietario(
     propietario_id: int,
-    persona_data: PersonaCreate,
-    usuario_creado: str,
+    request: RegistrarConyyugeRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -130,26 +186,26 @@ def registrar_conyuge_propietario(
         
         # Validar que no exista persona con mismo documento
         persona_existe = db.query(Persona).filter(
-            Persona.identificacion == persona_data.identificacion
+            Persona.identificacion == request.identificacion
         ).first()
         if persona_existe:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Ya existe una persona con identificación {persona_data.identificacion}"
+                detail=f"Ya existe una persona con identificación {request.identificacion}"
             )
         
         # Crear persona (cónyuge)
         persona = Persona(
-            identificacion=persona_data.identificacion,
-            tipo_identificacion=persona_data.tipo_identificacion,
-            nacionalidad=persona_data.nacionalidad or "Ecuador",
-            nombres=persona_data.nombres,
-            apellidos=persona_data.apellidos,
-            fecha_nacimiento=persona_data.fecha_nacimiento,
-            correo=persona_data.correo,
-            celular=persona_data.celular,
-            direccion_alternativa=persona_data.direccion_alternativa,
-            usuario_creado=usuario_creado
+            identificacion=request.identificacion,
+            tipo_identificacion=request.tipo_identificacion,
+            nacionalidad=request.nacionalidad,
+            nombres=request.nombres,
+            apellidos=request.apellidos,
+            fecha_nacimiento=request.fecha_nacimiento,
+            correo=request.correo,
+            celular=request.celular,
+            direccion_alternativa=request.direccion_alternativa,
+            usuario_creado=request.usuario_creado
         )
         
         db.add(persona)
@@ -159,7 +215,7 @@ def registrar_conyuge_propietario(
         conyuge = PropietarioVivienda(
             vivienda_propiedad_fk=vivienda_id,
             persona_propietario_fk=persona.persona_pk,
-            usuario_creado=usuario_creado
+            usuario_creado=request.usuario_creado
         )
         
         db.add(conyuge)
@@ -169,6 +225,7 @@ def registrar_conyuge_propietario(
             "success": True,
             "persona_id": persona.persona_pk,
             "conyuge_id": conyuge.propietario_vivienda_pk,
+            "vivienda_id": vivienda_id,
             "mensaje": "Cónyuge registrado exitosamente"
         }
     
@@ -276,10 +333,7 @@ def eliminar_propietario(
 @router.put("/{propietario_id}", response_model=dict)
 def actualizar_propietario(
     propietario_id: int,
-    correo_nuevo: str = None,
-    celular_nuevo: str = None,
-    direccion_alternativa: str = None,
-    usuario_actualizado: str = "api_user",
+    request: ActualizarPropietarioRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -305,39 +359,40 @@ def actualizar_propietario(
         ).first()
         
         # Actualizar solo campos permitidos
-        if correo_nuevo:
+        if request.correo_nuevo:
             # Validar formato email básico
-            if "@" not in correo_nuevo or "." not in correo_nuevo:
+            if "@" not in request.correo_nuevo or "." not in request.correo_nuevo:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Formato de email inválido"
                 )
-            persona.correo_electronico = correo_nuevo
+            persona.correo = request.correo_nuevo
         
-        if celular_nuevo:
-            # Validar celular ecuatoriano (09XXXXXXXX)
-            if not celular_nuevo.startswith("09") or len(celular_nuevo) != 10:
+        if request.celular_nuevo:
+            # Validar celular
+            if len(request.celular_nuevo) < 10:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Celular debe ser ecuatoriano: 09XXXXXXXX"
+                    detail="Celular inválido"
                 )
-            persona.numero_celular = celular_nuevo
+            persona.celular = request.celular_nuevo
         
-        if direccion_alternativa:
-            persona.direccion_alternativa = direccion_alternativa
+        if request.direccion_alternativa:
+            persona.direccion_alternativa = request.direccion_alternativa
         
         persona.fecha_actualizado = ahora_sin_tz()
-        persona.usuario_actualizado = usuario_actualizado
+        persona.usuario_actualizado = request.usuario_actualizado
         
         db.commit()
         
         return {
+            "success": True,
             "mensaje": "Información del propietario actualizada correctamente",
             "propietario_id": propietario_id,
             "campos_actualizados": {
-                "email": correo_nuevo is not None,
-                "celular": celular_nuevo is not None,
-                "direccion": direccion_alternativa is not None
+                "email": request.correo_nuevo is not None,
+                "celular": request.celular_nuevo is not None,
+                "direccion": request.direccion_alternativa is not None
             }
         }
     
@@ -449,10 +504,7 @@ def baja_propietario(
 
 @router.post("/cambio-propiedad", response_model=dict)
 def cambio_propietario_vivienda(
-    vivienda_id: int,
-    nuevo_propietario_id: int,
-    motivo_cambio: str,
-    usuario_actualizado: str = "api_user",
+    request: CambioPropiedadRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -461,7 +513,7 @@ def cambio_propietario_vivienda(
     Si residente actual = propietario anterior, nuevo propietario se registra como residente activo
     """
     try:
-        if not motivo_cambio:
+        if not request.motivo_cambio:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="El motivo del cambio es obligatorio"
@@ -469,7 +521,7 @@ def cambio_propietario_vivienda(
         
         # Validar vivienda existe
         vivienda = db.query(Vivienda).filter(
-            Vivienda.vivienda_pk == vivienda_id
+            Vivienda.vivienda_pk == request.vivienda_id
         ).first()
         
         if not vivienda:
@@ -480,7 +532,7 @@ def cambio_propietario_vivienda(
         
         # Obtener propietario actual
         propietario_actual = db.query(PropietarioVivienda).filter(
-            PropietarioVivienda.vivienda_propiedad_fk == vivienda_id,
+            PropietarioVivienda.vivienda_propiedad_fk == request.vivienda_id,
             PropietarioVivienda.estado == "activo",
             PropietarioVivienda.eliminado == False
         ).first()
@@ -493,7 +545,7 @@ def cambio_propietario_vivienda(
         
         # Obtener nuevo propietario
         nueva_persona = db.query(Persona).filter(
-            Persona.persona_pk == nuevo_propietario_id,
+            Persona.persona_pk == request.nuevo_propietario_id,
             Persona.estado == "activo"
         ).first()
         
@@ -505,7 +557,7 @@ def cambio_propietario_vivienda(
         
         # Obtener residente actual (para saber si es el propietario)
         residente_actual = db.query(ResidenteVivienda).filter(
-            ResidenteVivienda.vivienda_reside_fk == vivienda_id,
+            ResidenteVivienda.vivienda_reside_fk == request.vivienda_id,
             ResidenteVivienda.estado == "activo"
         ).first()
         
@@ -517,27 +569,27 @@ def cambio_propietario_vivienda(
         # Desactivar propietario actual
         propietario_actual.estado = "inactivo"
         propietario_actual.fecha_actualizado = ahora_sin_tz()
-        propietario_actual.usuario_actualizado = usuario_actualizado
-        propietario_actual.motivo_eliminado = f"Cambio de propietario: {motivo_cambio}"
+        propietario_actual.usuario_actualizado = request.usuario_actualizado
+        propietario_actual.motivo_eliminado = f"Cambio de propietario: {request.motivo_cambio}"
         
         # Buscar o crear nuevo propietario
         nuevo_propietario = db.query(PropietarioVivienda).filter(
-            PropietarioVivienda.persona_propietario_fk == nuevo_propietario_id,
-            PropietarioVivienda.vivienda_propiedad_fk == vivienda_id
+            PropietarioVivienda.persona_propietario_fk == request.nuevo_propietario_id,
+            PropietarioVivienda.vivienda_propiedad_fk == request.vivienda_id
         ).first()
         
         if nuevo_propietario:
             # Activar si existe pero estaba inactivo
             nuevo_propietario.estado = "activo"
             nuevo_propietario.fecha_actualizado = ahora_sin_tz()
-            nuevo_propietario.usuario_actualizado = usuario_actualizado
+            nuevo_propietario.usuario_actualizado = request.usuario_actualizado
         else:
             # Crear nuevo registro de propietario
             nuevo_propietario = PropietarioVivienda(
-                persona_propietario_fk=nuevo_propietario_id,
-                vivienda_propiedad_fk=vivienda_id,
+                persona_propietario_fk=request.nuevo_propietario_id,
+                vivienda_propiedad_fk=request.vivienda_id,
                 estado="activo",
-                usuario_creado=usuario_actualizado
+                usuario_creado=request.usuario_actualizado
             )
             db.add(nuevo_propietario)
         
@@ -546,22 +598,22 @@ def cambio_propietario_vivienda(
         if propietario_anterior_es_residente:
             # Buscar si nuevo propietario ya es residente
             residente_nuevo = db.query(ResidenteVivienda).filter(
-                ResidenteVivienda.persona_residente_fk == nuevo_propietario_id,
-                ResidenteVivienda.vivienda_reside_fk == vivienda_id
+                ResidenteVivienda.persona_residente_fk == request.nuevo_propietario_id,
+                ResidenteVivienda.vivienda_reside_fk == request.vivienda_id
             ).first()
             
             if residente_nuevo:
                 # Activar si existe pero estaba inactivo
                 residente_nuevo.estado = "activo"
                 residente_nuevo.fecha_actualizado = ahora_sin_tz()
-                residente_nuevo.usuario_actualizado = usuario_actualizado
+                residente_nuevo.usuario_actualizado = request.usuario_actualizado
             else:
                 # Crear nuevo registro de residente
                 residente_nuevo = ResidenteVivienda(
-                    persona_residente_fk=nuevo_propietario_id,
-                    vivienda_reside_fk=vivienda_id,
+                    persona_residente_fk=request.nuevo_propietario_id,
+                    vivienda_reside_fk=request.vivienda_id,
                     estado="activo",
-                    usuario_creado=usuario_actualizado
+                    usuario_creado=request.usuario_actualizado
                 )
                 db.add(residente_nuevo)
                 residente_nuevo_creado = True
@@ -569,13 +621,14 @@ def cambio_propietario_vivienda(
         db.commit()
         
         return {
+            "success": True,
             "mensaje": "Cambio de propietario realizado correctamente",
-            "vivienda_id": vivienda_id,
+            "vivienda_id": request.vivienda_id,
             "propietario_anterior_id": propietario_actual.propietario_vivienda_pk,
-            "propietario_nuevo_id": nuevo_propietario_id,
+            "propietario_nuevo_id": request.nuevo_propietario_id,
             "propietario_era_residente": propietario_anterior_es_residente,
             "residente_nuevo_creado": residente_nuevo_creado,
-            "motivo": motivo_cambio
+            "motivo": request.motivo_cambio
         }
     
     except HTTPException:

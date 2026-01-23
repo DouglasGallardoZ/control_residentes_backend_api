@@ -16,7 +16,7 @@
 4. [Endpoints - Cuentas (8)](#cuentas)
 5. [Endpoints - QR (5)](#qr)
 6. [Endpoints - Residentes (6)](#residentes)
-7. [Endpoints - Propietarios (5)](#propietarios)
+7. [Endpoints - Propietarios (8)](#propietarios)
 8. [Endpoints - Miembros de Familia (6)](#miembros-de-familia)
 9. [Modelos de Datos (Schemas)](#modelos-de-datos)
 10. [Códigos de Error](#códigos-de-error)
@@ -753,7 +753,7 @@ Obtiene la información completa de un usuario buscando por correo electrónico.
 ## QR
 
 **Prefijo:** `/api/v1/qr`  
-**Total Endpoints:** 4
+**Total Endpoints:** 5
 
 ### 1. Generar QR Propio
 
@@ -1681,7 +1681,7 @@ Obtiene todos los residentes activos de una vivienda especificada por su manzana
 **Auth:** Bearer token (admin)
 
 **Descripción:**
-Registra un nuevo propietario y lo asigna a una vivienda. El propietario se registra automáticamente como residente.
+Registra un nuevo propietario y lo asigna a una vivienda identificada por su manzana y villa. El propietario se registra automáticamente como residente.
 
 **Request Body:**
 ```json
@@ -1695,14 +1695,22 @@ Registra un nuevo propietario y lo asigna a una vivienda. El propietario se regi
   "correo": "maria.garcia@example.com",
   "celular": "+593998765432",
   "direccion_alternativa": "Avenida 10 # 456",
-  "vivienda_id": 1,
+  "manzana": "A",
+  "villa": "101",
   "usuario_creado": "admin_001"
 }
 ```
 
+**Query Parameters:**
+| Campo | Tipo | Requerido | Descripción |
+|-------|------|----------|-------------|
+| manzana | string | ✅ | Manzana de la vivienda |
+| villa | string | ✅ | Villa de la vivienda |
+
 **Validaciones:**
-- ✅ Vivienda debe existir
+- ✅ Vivienda debe existir (se busca por manzana y villa)
 - ✅ Identificación debe ser única
+- ✅ Manzana y villa son obligatorios
 
 **Success Response (201 Created):**
 ```json
@@ -1711,11 +1719,59 @@ Registra un nuevo propietario y lo asigna a una vivienda. El propietario se regi
   "persona_id": 2,
   "propietario_id": 5,
   "residente_id": 11,
+  "vivienda_id": 1,
   "mensaje": "Propietario registrado y automáticamente registrado como residente"
 }
 ```
 
+**Error Responses:**
+```json
+// 404 - Vivienda no encontrada
+{
+  "detail": "Vivienda no encontrada para manzana 'A' y villa '101'"
+}
+
+// 400 - Identificación duplicada
+{
+  "detail": "Ya existe una persona con identificación 9876543210"
+}
+```
+
 **Note:** El propietario se registra automáticamente como residente activo.
+
+**Ejemplo en Dart/Flutter:**
+```dart
+Future<void> registrarPropietario() async {
+  final response = await http.post(
+    Uri.parse('$baseUrl/propietarios'),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $accessToken',
+    },
+    body: jsonEncode({
+      'identificacion': '9876543210',
+      'tipo_identificacion': 'cedula',
+      'nombres': 'María',
+      'apellidos': 'García López',
+      'fecha_nacimiento': '1985-08-22',
+      'nacionalidad': 'Ecuador',
+      'correo': 'maria.garcia@example.com',
+      'celular': '+593998765432',
+      'direccion_alternativa': 'Avenida 10 # 456',
+      'manzana': 'A',
+      'villa': '101',
+      'usuario_creado': 'flutter_app'
+    }),
+  );
+
+  if (response.statusCode == 201) {
+    final data = jsonDecode(response.body);
+    print('Propietario creado: ${data['persona_id']}');
+  } else {
+    throw Exception('Error: ${response.body}');
+  }
+}
+```
 
 ---
 
@@ -1976,7 +2032,7 @@ Obtiene todos los propietarios activos de una vivienda especificada por su manza
 **Auth:** Bearer token
 
 **Descripción:**
-Agrega un miembro de familia (padre, madre, hijo, etc.) vinculado a un residente.
+Agrega un miembro de familia (padre, madre, hijo, etc.) vinculado a un residente. La vivienda se identifica por su manzana y villa.
 
 **Path Parameters:**
 ```
@@ -1986,7 +2042,8 @@ Agrega un miembro de familia (padre, madre, hijo, etc.) vinculado a un residente
 **Request Body:**
 ```json
 {
-  "vivienda_id": 1,
+  "manzana": "A",
+  "villa": "101",
   "identificacion": "2222222222",
   "tipo_identificacion": "cedula",
   "nombres": "Ana",
@@ -2002,10 +2059,18 @@ Agrega un miembro de familia (padre, madre, hijo, etc.) vinculado a un residente
 }
 ```
 
+**Request Fields:**
+| Campo | Tipo | Requerido | Descripción |
+|-------|------|----------|-------------|
+| manzana | string | ✅ | Manzana de la vivienda |
+| villa | string | ✅ | Villa de la vivienda |
+| parentesco | string | ✅ | Tipo de parentesco |
+| parentesco_otro_desc | string | ❌ | Descripción si parentesco = "otro" |
+
 **Validaciones:**
 - ✅ Parentescos válidos: `padre`, `madre`, `esposo`, `esposa`, `hijo`, `hija`, `otro`
 - ✅ Si parentesco = "otro", requerido campo `parentesco_otro_desc`
-- ✅ Vivienda debe existir
+- ✅ Vivienda debe existir (se busca por manzana y villa)
 - ✅ Residente debe existir en esa vivienda
 - ✅ Identificación debe ser única
 
@@ -2015,7 +2080,60 @@ Agrega un miembro de familia (padre, madre, hijo, etc.) vinculado a un residente
   "success": true,
   "miembro_id": 20,
   "persona_id": 4,
+  "vivienda_id": 1,
   "mensaje": "Miembro de familia agregado exitosamente"
+}
+```
+
+**Error Responses:**
+```json
+// 404 - Vivienda no encontrada
+{
+  "detail": "Vivienda no encontrada para manzana 'A' y villa '101'"
+}
+
+// 404 - Residente no existe en esa vivienda
+{
+  "detail": "Residente no encontrado en esta vivienda"
+}
+
+// 400 - Identificación duplicada
+{
+  "detail": "Ya existe una persona con identificación 2222222222"
+}
+```
+
+**Ejemplo en Dart/Flutter:**
+```dart
+Future<void> agregarMiembroFamilia(int residenteId) async {
+  final response = await http.post(
+    Uri.parse('$baseUrl/miembros/$residenteId/agregar'),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $accessToken',
+    },
+    body: jsonEncode({
+      'manzana': 'A',
+      'villa': '101',
+      'identificacion': '2222222222',
+      'tipo_identificacion': 'cedula',
+      'nombres': 'Ana',
+      'apellidos': 'Pérez García',
+      'fecha_nacimiento': '2010-06-20',
+      'nacionalidad': 'Ecuador',
+      'correo': 'ana.perez@example.com',
+      'celular': '+593987777777',
+      'parentesco': 'hija',
+      'usuario_creado': 'flutter_app'
+    }),
+  );
+
+  if (response.statusCode == 201) {
+    final data = jsonDecode(response.body);
+    print('Miembro agregado: ${data['persona_id']}');
+  } else {
+    throw Exception('Error: ${response.body}');
+  }
 }
 ```
 
