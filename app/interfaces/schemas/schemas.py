@@ -168,8 +168,8 @@ class CuentaEliminar(BaseModel):
 # ============ QR ============
 class QRGenerarPropio(BaseModel):
     duracion_horas: int = Field(..., gt=0)
-    fecha_acceso: date
-    hora_inicio: str  # HH:MM
+    fecha_acceso: date = None  # Opcional, si no viene usa fecha actual
+    hora_inicio: str = None  # HH:MM (opcional, si no viene usa hora actual)
     usuario_creado: str
 
 
@@ -179,8 +179,8 @@ class QRGenerarVisita(BaseModel):
     visita_apellidos: str
     motivo_visita: str
     duracion_horas: int = Field(..., gt=0)
-    fecha_acceso: date
-    hora_inicio: str  # HH:MM
+    fecha_acceso: date = None  # Opcional, si no viene usa fecha actual
+    hora_inicio: str = None  # HH:MM (opcional, si no viene usa hora actual)
     usuario_creado: str
 
 
@@ -202,6 +202,8 @@ class QRListResponse(BaseModel):
     token: str
     estado: str
     tipo_ingreso: str  # "propio" o "visita"
+    autorizado_por_nombre: str  # Nombre de quien autoriza (titular de cuenta)
+    autorizado_para: str  # Nombre de quien es autorizado (visitante o titular)
     hora_inicio_vigencia: datetime
     hora_fin_vigencia: datetime
     fecha_creado: datetime

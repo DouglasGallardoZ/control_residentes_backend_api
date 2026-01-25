@@ -12,6 +12,9 @@ router = APIRouter(prefix="/api/v1/miembros", tags=["Miembros de Familia"])
 
 class AgregarMiembroFamiliaRequest(BaseModel):
     """Schema para agregar miembro de familia"""
+    # Identificación del residente titular
+    identificacion_residente: str
+    
     # Ubicación de la vivienda
     manzana: str
     villa: str
@@ -45,9 +48,8 @@ class ReactivarMiembroRequest(BaseModel):
     usuario_actualizado: str = "api_user"
 
 
-@router.post("/{residente_id}/agregar", response_model=dict)
+@router.post("/agregar", response_model=dict)
 def agregar_miembro_familia(
-    residente_id: int,
     request: AgregarMiembroFamiliaRequest,
     db: Session = Depends(get_db)
 ):
@@ -58,7 +60,7 @@ def agregar_miembro_familia(
     try:
         # Validar parentescos válidos
         parentescos_validos = ['padre', 'madre', 'esposo', 'esposa', 'hijo', 'hija', 'otro']
-        if request.parentesco not in parentescos_validos:
+        if request.parentesco.lower() not in parentescos_validos:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Parentesco inválido. Válidos: {', '.join(parentescos_validos)}"
@@ -77,15 +79,26 @@ def agregar_miembro_familia(
         
         vivienda_id = vivienda.vivienda_pk
         
-        # Validar residente existe
+        # Obtener la persona residente por identificación
+        persona_residente = db.query(Persona).filter(
+            Persona.identificacion == request.identificacion_residente
+        ).first()
+        if not persona_residente:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Residente con identificación '{request.identificacion_residente}' no encontrado"
+            )
+        
+        # Validar que el residente existe en esa vivienda
         residente = db.query(ResidenteVivienda).filter(
-            ResidenteVivienda.residente_vivienda_pk == residente_id,
-            ResidenteVivienda.vivienda_reside_fk == vivienda_id
+            ResidenteVivienda.persona_residente_fk == persona_residente.persona_pk,
+            ResidenteVivienda.vivienda_reside_fk == vivienda_id,
+            ResidenteVivienda.estado == "activo"
         ).first()
         if not residente:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Residente no encontrado en esta vivienda"
+                detail=f"Residente con identificación '{request.identificacion_residente}' no está registrado como residente activo en esa vivienda"
             )
         
         # Validar que no exista persona con mismo documento
@@ -120,7 +133,7 @@ def agregar_miembro_familia(
             vivienda_familia_fk=vivienda_id,
             persona_residente_fk=residente.persona_residente_fk,
             persona_miembro_fk=persona.persona_pk,
-            parentesco=request.parentesco,
+            parentesco=request.parentesco.lower(),
             parentesco_otro_desc=request.parentesco_otro_desc if request.parentesco == 'otro' else None,
             usuario_creado=request.usuario_creado
         )

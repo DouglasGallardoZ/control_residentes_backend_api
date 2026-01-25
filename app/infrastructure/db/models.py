@@ -82,6 +82,7 @@ class Persona(Base):
     cuentas = relationship("Cuenta", back_populates="persona")
     guardias = relationship("Guardia", back_populates="persona")
     vehiculos = relationship("Vehiculo", back_populates="persona")
+    admin = relationship("Admin", back_populates="persona")
 
 
 class PersonaFoto(Base):
@@ -240,6 +241,28 @@ class Cuenta(Base):
     persona = relationship("Persona", back_populates="cuentas")
     eventos = relationship("EventoCuenta", back_populates="cuenta")
     qrs = relationship("QR", back_populates="cuenta")
+
+
+class Admin(Base):
+    """Tabla de administradores del sistema"""
+    __tablename__ = "admin"
+    
+    admin_pk = Column(Integer, primary_key=True)
+    persona_admin_fk = Column(Integer, ForeignKey('persona.persona_pk'), nullable=False)
+    estado = Column(String(10), nullable=False, default='activo')
+    eliminado = Column(Boolean, nullable=False, default=False)
+    motivo_eliminado = Column(Text)
+    fecha_creado = Column(DateTime, default=lambda: ahora_sin_tz())
+    usuario_creado = Column(String(20), nullable=False)
+    fecha_actualizado = Column(DateTime)
+    usuario_actualizado = Column(String(20))
+    
+    __table_args__ = (
+        CheckConstraint("estado IN ('activo','inactivo')", name='chk_admin_estado'),
+        CheckConstraint("eliminado = FALSE OR estado = 'inactivo'", name='chk_admin_eliminado_estado'),
+    )
+    
+    persona = relationship("Persona", back_populates="admin")
 
 
 class Guardia(Base):

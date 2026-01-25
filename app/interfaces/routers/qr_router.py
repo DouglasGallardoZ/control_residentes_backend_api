@@ -42,14 +42,32 @@ def generar_qr_propio(
             )
         
         # Validar fecha y hora
-        hora_inicio = datetime.strptime(request.hora_inicio, "%H:%M").time()
-        fecha_acceso = request.fecha_acceso
-        dt_inicio = datetime.combine(fecha_acceso, hora_inicio)
+        # Si fecha_acceso no viene, usar la fecha actual
+        if request.fecha_acceso:
+            fecha_acceso = request.fecha_acceso
+        else:
+            fecha_acceso = ahora_sin_tz().date()
         
-        if dt_inicio < ahora_sin_tz():
+        # Si hora_inicio no viene, usar la hora actual
+        if request.hora_inicio:
+            try:
+                hora_inicio = datetime.strptime(request.hora_inicio, "%H:%M").time()
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Formato de hora inválido. Use HH:MM"
+                )
+        else:
+            # Usar hora actual
+            hora_inicio = ahora_sin_tz().time()
+        
+        dt_inicio = datetime.combine(fecha_acceso, hora_inicio).replace(second=0, microsecond=0)
+        
+        # Permitir que sea exactamente ahora
+        if dt_inicio < ahora_sin_tz().replace(second=0, microsecond=0):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La fecha y hora deben ser futuras"
+                detail=f"La fecha y hora no pueden ser pasadas {dt_inicio}"
             )
         
         if request.duracion_horas <= 0:
@@ -152,14 +170,32 @@ def generar_qr_visita(
             )
         
         # Validar fecha y hora
-        hora_inicio = datetime.strptime(request.hora_inicio, "%H:%M").time()
-        fecha_acceso = request.fecha_acceso
+        # Si fecha_acceso no viene, usar la fecha actual
+        if request.fecha_acceso:
+            fecha_acceso = request.fecha_acceso
+        else:
+            fecha_acceso = ahora_sin_tz().date()
+        
+        # Si hora_inicio no viene, usar la hora actual
+        if request.hora_inicio:
+            try:
+                hora_inicio = datetime.strptime(request.hora_inicio, "%H:%M").time()
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Formato de hora inválido. Use HH:MM"
+                )
+        else:
+            # Usar hora actual
+            hora_inicio = ahora_sin_tz().time().replace(second=0, microsecond=0)
+        
         dt_inicio = datetime.combine(fecha_acceso, hora_inicio)
         
-        if dt_inicio < ahora_sin_tz():
+        # Permitir que sea exactamente ahora
+        if dt_inicio < ahora_sin_tz().replace(second=0, microsecond=0)  :
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La fecha y hora deben ser futuras"
+                detail="La fecha y hora no pueden ser pasadas"
             )
         
         if request.duracion_horas <= 0:
@@ -281,7 +317,7 @@ def obtener_qr(qr_id: int, db: Session = Depends(get_db)):
 
 @router.get("/cuenta/generados", response_model=QRPaginatedResponse)
 def listar_qr_por_cuenta(
-    usuario_id: int,
+    persona_id: int,
     page: int = Query(settings.PAGINATION_DEFAULT_PAGE, ge=1),
     page_size: int = Query(settings.PAGINATION_DEFAULT_PAGE_SIZE, ge=1, le=settings.PAGINATION_MAX_PAGE_SIZE),
     tipo_ingreso: str = None,  # "propio", "visita", o None para todos
@@ -306,14 +342,14 @@ def listar_qr_por_cuenta(
             page_size = 100  # Máximo 100 items por página
         
         # Validar tipo_ingreso
-        if tipo_ingreso and tipo_ingreso not in ["propio", "visita"]:
+        if tipo_ingreso and tipo_ingreso not in ["propio", "visita", "all"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="tipo_ingreso debe ser 'propio', 'visita' o vacío"
+                detail="tipo_ingreso debe ser 'propio', 'visita' o 'all' o vacio"
             )
         
         # Obtener cuenta del usuario
-        cuenta = db.query(Cuenta).filter(Cuenta.persona_titular_fk == usuario_id).first()
+        cuenta = db.query(Cuenta).filter(Cuenta.persona_titular_fk == persona_id).first()
         if not cuenta:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -342,15 +378,31 @@ def listar_qr_por_cuenta(
         # Obtener QRs paginados con filtro
         qrs = query_base.order_by(QRModel.fecha_creado.desc()).offset(offset).limit(page_size).all()
         
-        # Transformar QRs para incluir tipo de ingreso
+        # Transformar QRs para incluir tipo de ingreso y datos de autorización
         data = []
         for qr in qrs:
             tipo_ingreso_calc = "visita" if qr.visita_ingreso_fk is not None else "propio"
+            
+            # Obtener nombre de quien autoriza (titular de la cuenta)
+            persona_autoriza = db.query(Persona).filter(Persona.persona_pk == cuenta.persona_titular_fk).first()
+            autorizado_por_nombre = f"{persona_autoriza.nombres} {persona_autoriza.apellidos}" if persona_autoriza else "Desconocido"
+            
+            # Obtener nombre de quien es autorizado
+            if tipo_ingreso_calc == "visita" and qr.visita_ingreso_fk:
+                # Es una visita, traer nombre del visitante
+                visita = db.query(VisitaModel).filter(VisitaModel.visita_pk == qr.visita_ingreso_fk).first()
+                autorizado_para = f"{visita.nombres} {visita.apellidos}" if visita else "Visitante desconocido"
+            else:
+                # Es acceso propio, es el mismo titular
+                autorizado_para = autorizado_por_nombre
+            
             data.append(QRListResponse(
                 qr_pk=qr.qr_pk,
                 token=qr.token,
                 estado=qr.estado,
                 tipo_ingreso=tipo_ingreso_calc,
+                autorizado_por_nombre=autorizado_por_nombre,
+                autorizado_para=autorizado_para,
                 hora_inicio_vigencia=qr.hora_inicio_vigencia,
                 hora_fin_vigencia=qr.hora_fin_vigencia,
                 fecha_creado=qr.fecha_creado

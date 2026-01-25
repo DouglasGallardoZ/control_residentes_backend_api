@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.infrastructure.db import get_db
-from app.infrastructure.db.models import Cuenta, Persona, MiembroVivienda, EventoCuenta, ResidenteVivienda, Vivienda, PropietarioVivienda
+from app.infrastructure.db.models import Cuenta, Persona, MiembroVivienda, EventoCuenta, ResidenteVivienda, Vivienda, PropietarioVivienda, Admin
 from app.interfaces.schemas.schemas import PerfilUsuarioResponse, ViviendaInfo
 from datetime import datetime
 from pydantic import BaseModel
@@ -544,17 +544,16 @@ def obtener_perfil_usuario(
                     "villa": vivienda.villa
                 }
         else:
-            # Verificar si es miembro de familia
-            miembro = db.query(MiembroVivienda).filter(
-                MiembroVivienda.persona_miembro_fk == persona.persona_pk,
-                MiembroVivienda.estado == "activo",
-                MiembroVivienda.eliminado == False
+            # Verificar si es propietario (también tiene rol residente)
+            propietario = db.query(PropietarioVivienda).filter(
+                PropietarioVivienda.persona_propietario_fk == persona.persona_pk,
+                PropietarioVivienda.estado == "activo",
+                PropietarioVivienda.eliminado == False
             ).first()
             
-            if miembro:
-                rol = "miembro_familia"
-                parentesco = miembro.parentesco
-                vivienda = miembro.vivienda
+            if propietario:
+                rol = "residente"
+                vivienda = propietario.vivienda
                 if vivienda:
                     vivienda_info = {
                         "vivienda_id": vivienda.vivienda_pk,
@@ -562,8 +561,39 @@ def obtener_perfil_usuario(
                         "villa": vivienda.villa
                     }
             else:
-                # Es un usuario con solo cuenta+persona (admin u otro tipo)
-                rol = "admin"
+                # Verificar si es miembro de familia
+                miembro = db.query(MiembroVivienda).filter(
+                    MiembroVivienda.persona_miembro_fk == persona.persona_pk,
+                    MiembroVivienda.estado == "activo",
+                    MiembroVivienda.eliminado == False
+                ).first()
+                
+                if miembro:
+                    rol = "miembro_familia"
+                    parentesco = miembro.parentesco
+                    vivienda = miembro.vivienda
+                    if vivienda:
+                        vivienda_info = {
+                            "vivienda_id": vivienda.vivienda_pk,
+                            "manzana": vivienda.manzana,
+                            "villa": vivienda.villa
+                        }
+                else:
+                    # Verificar si es admin
+                    admin = db.query(Admin).filter(
+                        Admin.persona_admin_fk == persona.persona_pk,
+                        Admin.estado == "activo",
+                        Admin.eliminado == False
+                    ).first()
+                    
+                    if admin:
+                        rol = "admin"
+                    else:
+                        # No tiene rol válido
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Usuario no tiene un rol válido (residente, propietario, miembro de familia o admin)"
+                        )
         
         # Construir respuesta
         respuesta = {
