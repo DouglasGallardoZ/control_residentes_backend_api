@@ -35,8 +35,8 @@ RUN pip install --upgrade pip setuptools wheel && \
 
 # Copiar código de la aplicación
 COPY app ./app
-COPY alembic ./alembic
-COPY alembic.ini .
+# COPY alembic ./alembic
+# COPY alembic.ini .
 
 # Crear usuario no-root para seguridad
 RUN useradd -m -u 1000 appuser && \
