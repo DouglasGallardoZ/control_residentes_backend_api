@@ -38,12 +38,12 @@ COPY app ./app
 # COPY alembic ./alembic
 # COPY alembic.ini .
 
-# Crear usuario no-root para seguridad
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app
+# # Crear usuario no-root para seguridad
+# RUN useradd -m -u 1000 appuser && \
+#     chown -R appuser:appuser /app
 
-# Cambiar a usuario no-root
-USER appuser
+# # Cambiar a usuario no-root
+# USER appuser
 
 # Configurar puerto para Cloud Run (por defecto 8080)
 ENV PORT=8080 \
@@ -56,8 +56,8 @@ ENV PORT=8080 \
 EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${PORT}/docs || exit 1
+# HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+#     CMD curl -f http://localhost:${PORT}/docs || exit 1
 
 # Comando para iniciar la aplicación
 # Cloud Run requiere que la aplicación escuche en 0.0.0.0:8080
