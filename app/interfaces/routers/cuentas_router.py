@@ -825,3 +825,226 @@ def obtener_usuarios_vivienda(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+
+@router.get("/prospecto/residente/{identificacion}", response_model=dict)
+def validar_prospecto_residente(
+    identificacion: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Valida que una persona esté registrada como residente o propietario
+    y que NO tenga cuenta de usuario creada.
+    
+    Usado en el flujo de creación de usuario residente.
+    
+    Retorna:
+    - Datos de la persona (nombres, apellidos, correo, celular)
+    - Información de vivienda (manzana, villa)
+    - Tipo de registro (residente o propietario)
+    
+    Errores:
+    - 404: Si la persona no está registrada como residente/propietario
+    - 409: Si la persona ya tiene una cuenta de usuario creada
+    """
+    try:
+        # Buscar persona por identificación
+        persona = db.query(Persona).filter(
+            Persona.identificacion == identificacion,
+            Persona.estado == "activo"
+        ).first()
+        
+        if not persona:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Persona no encontrada con esa identificación"
+            )
+        
+        # Validar que NO tenga cuenta creada
+        cuenta_existente = db.query(Cuenta).filter(
+            Cuenta.persona_titular_fk == persona.persona_pk
+        ).first()
+        
+        if cuenta_existente:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Esta persona ya tiene una cuenta de usuario creada"
+            )
+        
+        # Buscar si es residente activo
+        residente = db.query(ResidenteVivienda).filter(
+            ResidenteVivienda.persona_residente_fk == persona.persona_pk,
+            ResidenteVivienda.estado == "activo",
+            ResidenteVivienda.eliminado == False
+        ).first()
+        
+        if residente:
+            vivienda = residente.vivienda
+            return {
+                "persona_id": persona.persona_pk,
+                "identificacion": persona.identificacion,
+                "nombres": persona.nombres,
+                "apellidos": persona.apellidos,
+                "correo": persona.correo,
+                "celular": persona.celular,
+                "tipo_registro": "residente",
+                "vivienda": {
+                    "vivienda_id": vivienda.vivienda_pk,
+                    "manzana": vivienda.manzana,
+                    "villa": vivienda.villa
+                } if vivienda else None,
+                "puede_crear_cuenta": True
+            }
+        
+        # Buscar si es propietario activo
+        propietario = db.query(PropietarioVivienda).filter(
+            PropietarioVivienda.persona_propietario_fk == persona.persona_pk,
+            PropietarioVivienda.estado == "activo",
+            PropietarioVivienda.eliminado == False
+        ).first()
+        
+        if propietario:
+            vivienda = propietario.vivienda
+            return {
+                "persona_id": persona.persona_pk,
+                "identificacion": persona.identificacion,
+                "nombres": persona.nombres,
+                "apellidos": persona.apellidos,
+                "correo": persona.correo,
+                "celular": persona.celular,
+                "tipo_registro": "propietario",
+                "vivienda": {
+                    "vivienda_id": vivienda.vivienda_pk,
+                    "manzana": vivienda.manzana,
+                    "villa": vivienda.villa
+                } if vivienda else None,
+                "puede_crear_cuenta": True
+            }
+        
+        # No está registrada como residente ni propietario
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Persona no está registrada como residente o propietario"
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/prospecto/miembro/{identificacion}", response_model=dict)
+def validar_prospecto_miembro(
+    identificacion: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Valida que una persona esté registrada como miembro de familia
+    y que NO tenga cuenta de usuario creada.
+    
+    Usado en el flujo de creación de usuario para miembro de familia.
+    
+    NO genera error si no encuentra la persona, solo devuelve existe: false
+    
+    Retorna:
+    - existe: bool (true si está registrado como miembro)
+    - Si existe=true: Datos de la persona, información de vivienda, parentesco
+    - Si existe=false: Solo existe: false
+    - En ambos casos valida que no tenga cuenta creada
+    """
+    try:
+        # Buscar persona por identificación
+        persona = db.query(Persona).filter(
+            Persona.identificacion == identificacion,
+            Persona.estado == "activo"
+        ).first()
+        
+        if not persona:
+            return {
+                "existe": False,
+                "persona_encontrada": False
+            }
+        
+        # Validar que NO tenga cuenta creada
+        cuenta_existente = db.query(Cuenta).filter(
+            Cuenta.persona_titular_fk == persona.persona_pk
+        ).first()
+        
+        if cuenta_existente:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Esta persona ya tiene una cuenta de usuario creada"
+            )
+        
+        # Validar que NO sea residente
+        es_residente = db.query(ResidenteVivienda).filter(
+            ResidenteVivienda.persona_residente_fk == persona.persona_pk,
+            ResidenteVivienda.estado == "activo",
+            ResidenteVivienda.eliminado == False
+        ).first()
+        
+        if es_residente:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Esta persona está registrada como residente, no puede ser miembro de familia"
+            )
+        
+        # Validar que NO sea propietario
+        es_propietario = db.query(PropietarioVivienda).filter(
+            PropietarioVivienda.persona_propietario_fk == persona.persona_pk,
+            PropietarioVivienda.estado == "activo",
+            PropietarioVivienda.eliminado == False
+        ).first()
+        
+        if es_propietario:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Esta persona está registrada como propietario, no puede ser miembro de familia"
+            )
+        
+        # Buscar si es miembro de familia activo
+        miembro = db.query(MiembroVivienda).filter(
+            MiembroVivienda.persona_miembro_fk == persona.persona_pk,
+            MiembroVivienda.estado == "activo",
+            MiembroVivienda.eliminado == False
+        ).first()
+        
+        if miembro:
+            vivienda = miembro.vivienda
+            return {
+                "existe": True,
+                "persona_id": persona.persona_pk,
+                "identificacion": persona.identificacion,
+                "nombres": persona.nombres,
+                "apellidos": persona.apellidos,
+                "correo": persona.correo,
+                "celular": persona.celular,
+                "parentesco": miembro.parentesco,
+                "vivienda": {
+                    "vivienda_id": vivienda.vivienda_pk,
+                    "manzana": vivienda.manzana,
+                    "villa": vivienda.villa
+                } if vivienda else None,
+                "puede_crear_cuenta": True
+            }
+        
+        # Persona existe pero no está registrada como miembro de familia
+        return {
+            "existe": False,
+            "persona_encontrada": True,
+            "identificacion": identificacion,
+            "nombres": persona.nombres,
+            "apellidos": persona.apellidos,
+            "mensaje": "Persona existe pero no está registrada como miembro de familia"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )

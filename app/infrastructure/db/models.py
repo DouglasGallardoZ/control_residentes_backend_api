@@ -122,13 +122,21 @@ class PropietarioVivienda(Base):
     usuario_creado = Column(String(20), nullable=False)
     fecha_actualizado = Column(DateTime)
     usuario_actualizado = Column(String(20))
+    tipo_propietario = Column(String(20), nullable=False, default='titular')
     
     __table_args__ = (
         CheckConstraint("estado IN ('activo','inactivo')", name='chk_propietario_estado'),
+        CheckConstraint("tipo_propietario IN ('titular','conyuge','copropietario','hijo')", name='chk_propietario_tipo'),
         CheckConstraint("eliminado = FALSE OR estado = 'inactivo'", name='chk_propietario_eliminado_estado'),
-        Index('uq_propietario_activo_vivienda', 'vivienda_propiedad_fk',
+        Index('uq_propietario_persona_unica_por_casa', 'vivienda_propiedad_fk', 'persona_propietario_fk', 
+              unique=True,
               postgresql_where=(
                   (estado == 'activo') & (eliminado == False)
+              )),
+        Index('uq_propietario_titular_unico', 'vivienda_propiedad_fk',
+              unique=True,
+              postgresql_where=(
+                  (tipo_propietario == 'titular') & (estado == 'activo') & (eliminado == False)
               )),
     )
     

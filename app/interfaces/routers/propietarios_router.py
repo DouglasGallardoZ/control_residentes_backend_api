@@ -122,10 +122,26 @@ def registrar_propietario(
         db.add(persona)
         db.flush()
         
-        # Crear relación propietario-vivienda
+        # Validar que no exista un propietario titular activo en esta vivienda
+        propietario_titular_existente = db.query(PropietarioVivienda).filter(
+            PropietarioVivienda.vivienda_propiedad_fk == vivienda_id,
+            PropietarioVivienda.tipo_propietario == "titular",
+            PropietarioVivienda.estado == "activo",
+            PropietarioVivienda.eliminado == False
+        ).first()
+        
+        if propietario_titular_existente:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Esta vivienda ya tiene un propietario titular registrado"
+            )
+        
+        # Crear relación propietario-vivienda con tipo_propietario="titular"
         propietario = PropietarioVivienda(
             vivienda_propiedad_fk=vivienda_id,
             persona_propietario_fk=persona.persona_pk,
+            tipo_propietario="titular",
+            estado="activo",
             usuario_creado=request.usuario_creado
         )
         
@@ -211,10 +227,26 @@ def registrar_conyuge_propietario(
         db.add(persona)
         db.flush()
         
-        # Crear relación cónyuge-vivienda
+        # Validar que solo exista un cónyuge por propiedad
+        conyuge_existente = db.query(PropietarioVivienda).filter(
+            PropietarioVivienda.vivienda_propiedad_fk == vivienda_id,
+            PropietarioVivienda.tipo_propietario == "conyuge",
+            PropietarioVivienda.estado == "activo",
+            PropietarioVivienda.eliminado == False
+        ).first()
+        
+        if conyuge_existente:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Esta vivienda ya tiene un cónyuge registrado"
+            )
+        
+        # Crear relación cónyuge-vivienda con tipo_propietario="conyuge"
         conyuge = PropietarioVivienda(
             vivienda_propiedad_fk=vivienda_id,
             persona_propietario_fk=persona.persona_pk,
+            tipo_propietario="conyuge",
+            estado="activo",
             usuario_creado=request.usuario_creado
         )
         
@@ -448,40 +480,21 @@ def baja_propietario(
         
         # Obtener y desactivar cónyuge si existe
         conyuge_procesado = False
-        persona_propietario = db.query(Persona).filter(
-            Persona.persona_pk == propietario.persona_propietario_fk
+        
+        # Buscar cónyuge directo por tipo_propietario
+        conyuge_prop = db.query(PropietarioVivienda).filter(
+            PropietarioVivienda.vivienda_propiedad_fk == propietario.vivienda_propiedad_fk,
+            PropietarioVivienda.tipo_propietario == "conyuge",
+            PropietarioVivienda.estado == "activo",
+            PropietarioVivienda.eliminado == False
         ).first()
         
-        if persona_propietario:
-            # Buscar cónyuge en tabla Persona con relación de pareja
-            # Se asume que hay una relación establecida
-            # Aquí se busca si esta persona es propietario y tiene cónyuge registrado
-            conyuge = db.query(Persona).filter(
-                Persona.persona_pk != persona_propietario.persona_pk,
-                # Buscamos si hay otro propietario en la misma vivienda (cónyuge)
-                Persona.estado == "activo"
-            ).filter(
-                Persona.persona_pk.in_(
-                    db.query(PropietarioVivienda.persona_propietario_fk).filter(
-                        PropietarioVivienda.vivienda_propiedad_fk == propietario.vivienda_propiedad_fk,
-                        PropietarioVivienda.persona_propietario_fk != propietario.persona_propietario_fk,
-                        PropietarioVivienda.eliminado == False
-                    )
-                )
-            ).first()
-            
-            if conyuge:
-                conyuge_prop = db.query(PropietarioVivienda).filter(
-                    PropietarioVivienda.persona_propietario_fk == conyuge.persona_pk,
-                    PropietarioVivienda.vivienda_propiedad_fk == propietario.vivienda_propiedad_fk
-                ).first()
-                
-                if conyuge_prop:
-                    conyuge_prop.estado = "inactivo"
-                    conyuge_prop.fecha_actualizado = ahora_sin_tz()
-                    conyuge_prop.usuario_actualizado = request.usuario_actualizado
-                    conyuge_prop.motivo_eliminado = f"Baja asociada a propietario principal: {request.motivo}"
-                    conyuge_procesado = True
+        if conyuge_prop:
+            conyuge_prop.estado = "inactivo"
+            conyuge_prop.fecha_actualizado = ahora_sin_tz()
+            conyuge_prop.usuario_actualizado = request.usuario_actualizado
+            conyuge_prop.motivo_eliminado = f"Baja asociada a propietario titular: {request.motivo}"
+            conyuge_procesado = True
         
         db.commit()
         
@@ -682,7 +695,8 @@ def obtener_propietarios_por_ubicacion(
                 "apellidos": persona.apellidos,
                 "correo": persona.correo,
                 "celular": persona.celular,
-                "estado": propietario.estado
+                "estado": propietario.estado,
+                "tipo_propietario": propietario.tipo_propietario
             })
         
         return {

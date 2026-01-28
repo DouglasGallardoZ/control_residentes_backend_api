@@ -95,28 +95,32 @@ CREATE TABLE persona_foto (
 -- PROPIETARIO_VIVIENDA
 -- =====================================================
 CREATE TABLE propietario_vivienda (
-    propietario_vivienda_pk SERIAL PRIMARY KEY,
-    vivienda_propiedad_fk INTEGER NOT NULL REFERENCES vivienda(vivienda_pk),
-    persona_propietario_fk INTEGER NOT NULL REFERENCES persona(persona_pk),
-    estado VARCHAR(10) NOT NULL DEFAULT 'activo',
-    eliminado BOOLEAN NOT NULL DEFAULT FALSE,
-    motivo_eliminado TEXT,
-    motivo_inactivo TEXT,
-    fecha_desde DATE DEFAULT CURRENT_DATE,
-    fecha_hasta DATE,
-    motivo TEXT,
-    fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
-    fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
-    CONSTRAINT chk_propietario_estado CHECK (estado IN ('activo','inactivo')),
-    CONSTRAINT chk_propietario_eliminado_estado
-        CHECK (eliminado = FALSE OR estado = 'inactivo')
+	propietario_vivienda_pk serial4 NOT NULL,
+	vivienda_propiedad_fk int4 NOT NULL,
+	persona_propietario_fk int4 NOT NULL,
+	estado varchar(10) DEFAULT 'activo'::character varying NOT NULL,
+	eliminado bool DEFAULT false NOT NULL,
+	motivo_eliminado text NULL,
+	motivo_inactivo text NULL,
+	fecha_desde date DEFAULT CURRENT_DATE NULL,
+	fecha_hasta date NULL,
+	motivo text NULL,
+	fecha_creado timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	usuario_creado varchar(20) NOT NULL,
+	fecha_actualizado timestamp NULL,
+	usuario_actualizado varchar(20) NULL,
+	tipo_propietario varchar(20) DEFAULT 'titular'::character varying NOT NULL,
+	CONSTRAINT chk_propietario_eliminado_estado CHECK (((eliminado = false) OR ((estado)::text = 'inactivo'::text))),
+	CONSTRAINT chk_propietario_estado CHECK (((estado)::text = ANY ((ARRAY['activo'::character varying, 'inactivo'::character varying])::text[]))),
+	CONSTRAINT chk_propietario_tipo CHECK (((tipo_propietario)::text = ANY ((ARRAY['titular'::character varying, 'conyuge'::character varying, 'copropietario'::character varying, 'hijo'::character varying])::text[]))),
+	CONSTRAINT propietario_vivienda_pkey PRIMARY KEY (propietario_vivienda_pk),
+	CONSTRAINT propietario_vivienda_persona_propietario_fk_fkey FOREIGN KEY (persona_propietario_fk) REFERENCES public.persona(persona_pk),
+	CONSTRAINT propietario_vivienda_vivienda_propiedad_fk_fkey FOREIGN KEY (vivienda_propiedad_fk) REFERENCES public.vivienda(vivienda_pk)
 );
+CREATE UNIQUE INDEX uq_propietario_persona_unica_por_casa ON public.propietario_vivienda USING btree (vivienda_propiedad_fk, persona_propietario_fk) WHERE (((estado)::text = 'activo'::text) AND (eliminado = false));
+CREATE UNIQUE INDEX uq_propietario_titular_unico ON public.propietario_vivienda USING btree (vivienda_propiedad_fk) WHERE (((tipo_propietario)::text = 'titular'::text) AND ((estado)::text = 'activo'::text) AND (eliminado = false));
 
-CREATE UNIQUE INDEX uq_propietario_activo_vivienda
-ON propietario_vivienda (vivienda_propiedad_fk)
-WHERE estado = 'activo' AND eliminado = FALSE;
+
 
 -- =====================================================
 -- RESIDENTE_VIVIENDA
