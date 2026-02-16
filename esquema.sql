@@ -87,8 +87,16 @@ CREATE TABLE persona_foto (
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     usuario_creado VARCHAR(20) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
-    rostro_embedding _float8 NULL
+    usuario_actualizado VARCHAR(20)
+);
+
+-- =====================================================
+-- PERSONA_FOTO
+-- =====================================================
+CREATE TABLE persona_foto (
+    embedding_pk SERIAL PRIMARY KEY,
+    persona_titular_fk INTEGER NOT NULL REFERENCES persona(persona_pk),
+    rostro_embedding TEXT NOT NULL
 );
 
 -- =====================================================
