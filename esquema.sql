@@ -19,6 +19,7 @@ DROP TABLE IF EXISTS
     residente_vivienda,
     propietario_vivienda,
     persona_foto,
+    persona_embedding,
     persona,
     vivienda,
     bitacora
@@ -91,9 +92,9 @@ CREATE TABLE persona_foto (
 );
 
 -- =====================================================
--- PERSONA_FOTO
+-- PERSONA_EMBEDDING
 -- =====================================================
-CREATE TABLE persona_foto (
+CREATE TABLE persona_embedding (
     embedding_pk SERIAL PRIMARY KEY,
     persona_titular_fk INTEGER NOT NULL REFERENCES persona(persona_pk),
     rostro_embedding TEXT NOT NULL
