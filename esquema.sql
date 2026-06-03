@@ -14,6 +14,7 @@ DROP TABLE IF EXISTS
     vehiculo,
     evento_cuenta,
     guardia,
+    admin,
     cuenta,
     miembro_vivienda,
     residente_vivienda,
@@ -243,6 +244,28 @@ CREATE TABLE guardia (
 
 CREATE UNIQUE INDEX uq_guardia_persona_activa
 ON guardia (persona_guardia_fk)
+WHERE estado = 'activo' AND eliminado = FALSE;
+
+-- =====================================================
+-- ADMINISTRADOR
+-- =====================================================
+CREATE TABLE admin (
+    admin_pk SERIAL PRIMARY KEY,
+    persona_admin_fk INTEGER NOT NULL REFERENCES persona(persona_pk),
+    estado VARCHAR(10) NOT NULL DEFAULT 'activo',
+    eliminado BOOLEAN NOT NULL DEFAULT FALSE,
+    motivo_eliminado TEXT,
+    fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    usuario_creado VARCHAR(20) NOT NULL,
+    fecha_actualizado TIMESTAMP,
+    usuario_actualizado VARCHAR(20),
+    CONSTRAINT chk_guardia_estado CHECK (estado IN ('activo','inactivo')),
+    CONSTRAINT chk_guardia_eliminado_estado
+        CHECK (eliminado = FALSE OR estado = 'inactivo')
+);
+
+CREATE UNIQUE INDEX uq_admin_persona_activa
+ON admin (persona_admin_fk)
 WHERE estado = 'activo' AND eliminado = FALSE;
 
 -- =====================================================
