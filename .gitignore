@@ -31,3 +31,4 @@ build/
 .eggs/
 pip-wheel-metadata/
 .pytest_cache/
+firebase-credentials.json
