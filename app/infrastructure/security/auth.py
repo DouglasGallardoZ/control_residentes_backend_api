@@ -1,137 +1,162 @@
+"""
+Modulo de autenticacion centralizado.
+Usa Firebase Auth para validar tokens y obtener roles desde la BD.
+"""
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthCredential
-import firebase_admin
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from firebase_admin import auth as firebase_auth
-from app.config import get_settings
-from typing import Optional, Dict
-from datetime import timedelta
-from app.infrastructure.utils.time_utils import ahora_sin_tz
 
-settings = get_settings()
+from app.infrastructure.security.firebase_init import inicializar_firebase
+from app.infrastructure.db.database import SessionLocal
+from app.infrastructure.db.models import Cuenta, Admin, ResidenteVivienda, MiembroVivienda, Persona
+
+try:
+    inicializar_firebase()
+except Exception as e:
+    print(f"ADVERTENCIA: No se pudo inicializar Firebase: {e}")
+    print("  Los endpoints protegidos fallaran sin credenciales validas.")
+
 security = HTTPBearer()
 
 
-class FirebaseAuthenticator:
-    """Autenticador usando Firebase Auth"""
-    
-    @staticmethod
-    def verificar_token_firebase(credential: HTTPAuthCredential) -> Dict:
-        """
-        Verifica un idToken de Firebase
-        
-        Args:
-            credential: Credencial HTTP con el token
-            
-        Returns:
-            Dict con datos del usuario decodificados
-        """
-        try:
-            decoded_token = firebase_auth.verify_id_token(credential.credentials)
-            return decoded_token
-        except firebase_auth.InvalidIdTokenError:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token inválido o expirado"
-            )
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Error autenticando con Firebase"
-            )
-
-
 async def obtener_usuario_firebase(
-    credential: HTTPAuthCredential = Depends(security)
-) -> Dict:
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
     """
-    Dependency para obtener usuario autenticado con Firebase
+    Valida el token de Firebase y retorna los datos del usuario.
     """
-    return FirebaseAuthenticator.verificar_token_firebase(credential)
+    token = credentials.credentials
 
-
-# ============ JWT (Plan de migración) ============
-from datetime import datetime, timedelta
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-class JWTHandler:
-    """Handler para JWT (plan de migración a futuro)"""
-    
-    @staticmethod
-    def crear_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-        """
-        Crea un token JWT
-        
-        Args:
-            data: Datos a incluir en el token
-            expires_delta: Duración personalizada del token
-            
-        Returns:
-            Token JWT codificado
-        """
-        to_encode = data.copy()
-        
-        if expires_delta:
-            expire = ahora_sin_tz() + expires_delta
-        else:
-            expire = ahora_sin_tz() + timedelta(hours=settings.JWT_EXPIRATION_HOURS)
-        
-        to_encode.update({"exp": expire})
-        
-        encoded_jwt = jwt.encode(
-            to_encode,
-            settings.JWT_SECRET_KEY,
-            algorithm=settings.JWT_ALGORITHM
-        )
-        
-        return encoded_jwt
-    
-    @staticmethod
-    def verificar_token(token: str) -> Dict:
-        """
-        Verifica y decodifica un token JWT
-        
-        Args:
-            token: Token JWT a verificar
-            
-        Returns:
-            Datos decodificados del token
-        """
-        try:
-            payload = jwt.decode(
-                token,
-                settings.JWT_SECRET_KEY,
-                algorithms=[settings.JWT_ALGORITHM]
-            )
-            return payload
-        except JWTError:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token inválido o expirado"
-            )
-
-
-async def obtener_usuario_jwt(
-    credential: HTTPAuthCredential = Depends(security)
-) -> Dict:
-    """
-    Dependency para obtener usuario autenticado con JWT (para migración futura)
-    """
     try:
-        return JWTHandler.verificar_token(credential.credentials)
-    except HTTPException:
-        raise
+        decoded_token = firebase_auth.verify_id_token(token)
+        return {
+            "uid": decoded_token.get("uid"),
+            "email": decoded_token.get("email"),
+            "firebase_uid": decoded_token.get("uid"),
+        }
+    except firebase_auth.ExpiredIdTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expirado",
+        )
+    except firebase_auth.InvalidIdTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token invalido",
+        )
+    except firebase_auth.RevokedIdTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token revocado",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Error autenticando con Firebase: {str(e)}",
+        )
 
 
-# Función que elige qué autenticador usar
-async def obtener_usuario_actual(
-    credential: HTTPAuthCredential = Depends(security)
-) -> Dict:
+async def obtener_usuario_con_rol(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
     """
-    Obtiene usuario actual.
-    Actualmente usa Firebase Auth, pero puede cambiar a JWT en el futuro.
+    Obtiene el usuario autenticado con su rol desde la base de datos.
+
+    Retorna:
+        {firebase_uid, email, persona_id, rol, nombres, cuenta_id}
     """
-    return FirebaseAuthenticator.verificar_token_firebase(credential)
+    usuario_firebase = await obtener_usuario_firebase(credentials)
+    firebase_uid = usuario_firebase.get("firebase_uid")
+
+    db = SessionLocal()
+    try:
+        cuenta = db.query(Cuenta).filter(
+            Cuenta.firebase_uid == firebase_uid,
+            Cuenta.eliminado == False,
+        ).first()
+
+        if not cuenta:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Cuenta no encontrada en el sistema",
+            )
+
+        persona_id = cuenta.persona_titular_fk
+
+        rol = "desconocido"
+        admin = db.query(Admin).filter(
+            Admin.persona_admin_fk == persona_id,
+            Admin.estado == "activo",
+            Admin.eliminado == False,
+        ).first()
+        if admin:
+            rol = "admin"
+
+        if rol == "desconocido":
+            residente = db.query(ResidenteVivienda).filter(
+                ResidenteVivienda.persona_residente_fk == persona_id,
+                ResidenteVivienda.estado == "activo",
+                ResidenteVivienda.eliminado == False,
+            ).first()
+            if residente:
+                rol = "residente"
+
+        if rol == "desconocido":
+            miembro = db.query(MiembroVivienda).filter(
+                MiembroVivienda.persona_miembro_fk == persona_id,
+                MiembroVivienda.estado == "activo",
+                MiembroVivienda.eliminado == False,
+            ).first()
+            if miembro:
+                rol = "miembro_familia"
+
+        persona = db.query(Persona).filter(
+            Persona.persona_pk == persona_id
+        ).first()
+        nombres = (
+            f"{persona.nombres} {persona.apellidos}" if persona else ""
+        )
+
+        return {
+            "firebase_uid": firebase_uid,
+            "email": usuario_firebase.get("email"),
+            "persona_id": persona_id,
+            "rol": rol,
+            "nombres": nombres,
+            "cuenta_id": cuenta.cuenta_pk,
+        }
+    finally:
+        db.close()
+
+
+obtener_usuario_actual = obtener_usuario_con_rol
+
+
+def requerir_rol(*roles_permitidos: str):
+    """
+    Dependency factory que verifica que el usuario tenga
+    uno de los roles permitidos.
+
+    Uso:
+        @router.get("/admin")
+        async def ruta_admin(
+            usuario: dict = Depends(requerer_rol("admin"))
+        ):
+            ...
+    """
+
+    async def verificador_rol(
+        usuario: dict = Depends(obtener_usuario_con_rol),
+    ) -> dict:
+        rol = usuario.get("rol", "desconocido")
+        if rol not in roles_permitidos:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Acceso denegado. Se requiere rol: {roles_permitidos}. "
+                    f"Rol actual: {rol}"
+                ),
+            )
+        return usuario
+
+    return verificador_rol

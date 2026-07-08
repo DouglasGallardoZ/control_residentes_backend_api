@@ -9,6 +9,7 @@ from app.infrastructure.db.models import QR as QRModel, Cuenta, Acceso as Acceso
 from datetime import datetime
 from app.infrastructure.utils.time_utils import ahora_sin_tz, timedelta
 from app.config import get_settings
+from app.infrastructure.security.auth import obtener_usuario_con_rol
 import secrets
 import string
 
@@ -25,14 +26,21 @@ def generar_token() -> str:
 @router.post("/generar-propio", response_model=dict)
 def generar_qr_propio(
     request: QRGenerarPropio,
-    usuario_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(obtener_usuario_con_rol),
 ):
     """
     Genera un código QR propio para residente o miembro
     RF-Q01
     """
     try:
+        usuario_id = usuario.get("persona_id")
+        if not usuario_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Usuario sin persona asociada"
+            )
+
         # Obtener cuenta del usuario
         cuenta = db.query(Cuenta).filter(Cuenta.persona_titular_fk == usuario_id).first()
         if not cuenta or cuenta.estado != "activo":
@@ -146,14 +154,21 @@ def generar_qr_propio(
 @router.post("/generar-visita", response_model=dict)
 def generar_qr_visita(
     request: QRGenerarVisita,
-    usuario_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(obtener_usuario_con_rol),
 ):
     """
     Genera un código QR para autorizar visita
     RF-Q02
     """
     try:
+        usuario_id = usuario.get("persona_id")
+        if not usuario_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Usuario sin persona asociada"
+            )
+
         # Obtener cuenta del usuario
         cuenta = db.query(Cuenta).filter(Cuenta.persona_titular_fk == usuario_id).first()
         if not cuenta or cuenta.estado != "activo":
@@ -317,11 +332,11 @@ def obtener_qr(qr_id: int, db: Session = Depends(get_db)):
 
 @router.get("/cuenta/generados", response_model=QRPaginatedResponse)
 def listar_qr_por_cuenta(
-    persona_id: int,
     page: int = Query(settings.PAGINATION_DEFAULT_PAGE, ge=1),
     page_size: int = Query(settings.PAGINATION_DEFAULT_PAGE_SIZE, ge=1, le=settings.PAGINATION_MAX_PAGE_SIZE),
     tipo_ingreso: str = None,  # "propio", "visita", o None para todos
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(obtener_usuario_con_rol),
 ):
     """
     Lista QRs generados por la cuenta del usuario autenticado (paginado)
@@ -332,6 +347,12 @@ def listar_qr_por_cuenta(
     Retorna: datos paginados con token, estado, tipo de ingreso, fechas de vigencia
     RF-Q03
     """
+    persona_id = usuario.get("persona_id")
+    if not persona_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Usuario no autorizado"
+        )
     try:
         # Validar parámetros de paginación
         if page < 1:
@@ -426,19 +447,25 @@ def listar_qr_por_cuenta(
         )
 
 
-@router.get("/visitantes/{persona_id}", response_model=ViviendaVisitasResponse)
+@router.get("/visitantes", response_model=ViviendaVisitasResponse)
 def obtener_visitantes_vivienda(
-    persona_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(obtener_usuario_con_rol),
 ):
     """
     Obtiene la lista de visitantes registrados para la vivienda del usuario
     El usuario puede ser residente o miembro de familia
     Retorna identificación, nombres, apellidos y fecha de registro
     para que puedan ser reutilizados al generar QRs de visita
-    
+
     RF-Q04: Consultar visitantes disponibles para reutilización
     """
+    persona_id = usuario.get("persona_id")
+    if not persona_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Usuario no autorizado"
+        )
     try:
         # Obtener persona
         persona = db.query(Persona).filter(Persona.persona_pk == persona_id).first()

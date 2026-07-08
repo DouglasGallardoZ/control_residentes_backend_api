@@ -6,6 +6,7 @@ from datetime import datetime, date
 from pydantic import BaseModel
 from typing import List, Optional
 from app.application.services.accesos_service import AccesosService
+from app.infrastructure.security.auth import obtener_usuario_con_rol, requerir_rol
 
 router = APIRouter(prefix="/api/v1/accesos", tags=["Accesos"])
 
@@ -79,7 +80,8 @@ def obtener_accesos_vivienda(
     fecha_fin: Optional[date] = None,
     tipo: Optional[str] = None,
     resultado: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(obtener_usuario_con_rol),
 ):
     """
     Obtiene accesos de una vivienda específica.
@@ -131,7 +133,8 @@ def obtener_accesos_vivienda(
 def obtener_estadisticas_admin(
     fecha_inicio: Optional[date] = None,
     fecha_fin: Optional[date] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Obtiene estadísticas completas de accesos del sistema.

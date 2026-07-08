@@ -1,4 +1,12 @@
 # __init__ para routers
-from . import qr_router, cuentas_router, residentes_router, propietarios_router, miembros_router, accesos_router
+from . import (
+    qr_router, cuentas_router, residentes_router,
+    propietarios_router, miembros_router, accesos_router,
+    notificaciones_router,
+)
 
-__all__ = ["qr_router", "cuentas_router", "residentes_router", "propietarios_router", "miembros_router", "accesos_router"]
+__all__ = [
+    "qr_router", "cuentas_router", "residentes_router",
+    "propietarios_router", "miembros_router", "accesos_router",
+    "notificaciones_router",
+]

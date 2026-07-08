@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     
     # ========== FIRESTORE ==========
     FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "tu-proyecto-firebase")
-    FIREBASE_CREDENTIALS_PATH: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "./firebase-credentials.json")
+    FIREBASE_CREDENTIALS_PATH: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "app/firebase-credentials.json")
     
     # ========== FIREBASE AUTH ==========
     FIREBASE_API_KEY: str = os.getenv("FIREBASE_API_KEY", "tu-api-key")

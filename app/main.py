@@ -2,8 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.interfaces.routers import (
-    qr_router, cuentas_router, residentes_router, 
-    propietarios_router, miembros_router, accesos_router
+    qr_router, cuentas_router, residentes_router,
+    propietarios_router, miembros_router, accesos_router,
+    notificaciones_router,
 )
 from app.infrastructure.db import Base, engine
 
@@ -38,6 +39,7 @@ app.include_router(residentes_router.router)
 app.include_router(propietarios_router.router)
 app.include_router(miembros_router.router)
 app.include_router(accesos_router.router)
+app.include_router(notificaciones_router.router)
 
 
 @app.get("/", tags=["Health"])
