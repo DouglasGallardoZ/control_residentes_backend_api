@@ -447,8 +447,11 @@ def listar_qr_por_cuenta(
         )
 
 
-@router.get("/visitantes", response_model=ViviendaVisitasResponse)
+@router.get(
+    "/visitantes/{persona_id}", response_model=ViviendaVisitasResponse
+)
 def obtener_visitantes_vivienda(
+    persona_id: int,
     db: Session = Depends(get_db),
     usuario: dict = Depends(obtener_usuario_con_rol),
 ):
@@ -460,31 +463,30 @@ def obtener_visitantes_vivienda(
 
     RF-Q04: Consultar visitantes disponibles para reutilización
     """
-    persona_id = usuario.get("persona_id")
-    if not persona_id:
+    usuario_persona_id = usuario.get("persona_id")
+    if not usuario_persona_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Usuario no autorizado"
+            detail="Usuario no autorizado",
         )
+
+    if usuario_persona_id != persona_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No autorizado: el persona_id no coincide con el token",
+        )
+
     try:
-        # Obtener persona
-        persona = db.query(Persona).filter(Persona.persona_pk == persona_id).first()
-        if not persona:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Persona no encontrada"
-            )
-        
         # Determinar vivienda y rol del usuario
         vivienda_id = None
-        
+
         # Verificar si es residente
         residente = db.query(ResidenteVivienda).filter(
             ResidenteVivienda.persona_residente_fk == persona_id,
             ResidenteVivienda.estado == "activo",
             ResidenteVivienda.eliminado == False
         ).first()
-        
+
         if residente:
             vivienda_id = residente.vivienda_reside_fk
         else:
@@ -494,7 +496,7 @@ def obtener_visitantes_vivienda(
                 MiembroVivienda.estado == "activo",
                 MiembroVivienda.eliminado == False
             ).first()
-            
+
             if miembro:
                 vivienda_id = miembro.vivienda_familia_fk
             else:
