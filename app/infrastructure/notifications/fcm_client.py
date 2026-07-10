@@ -60,33 +60,33 @@ class FCMClient:
         datos: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
         """
-        Envía una notificación push a múltiples dispositivos
-        
-        Args:
-            tokens: Lista de tokens FCM
-            titulo: Título de la notificación
-            cuerpo: Cuerpo del mensaje
-            datos: Datos adicionales
-            
-        Returns:
+        Envía una notificación push a múltiples dispositivos.
+
+        Usa send_each en vez de send_multicast porque Google
+        descontinuó el endpoint /batch en FCM v1.
+
+        Retorna:
             Dict con estadísticas de envío
         """
         try:
-            message = messaging.MulticastMessage(
-                notification=messaging.Notification(
-                    title=titulo,
-                    body=cuerpo
-                ),
-                data=datos or {},
-                tokens=tokens
-            )
-            
-            response = self.messaging_client.send_multicast(message)
-            
+            mensajes = []
+            for token in tokens:
+                msg = messaging.Message(
+                    notification=messaging.Notification(
+                        title=titulo,
+                        body=cuerpo
+                    ),
+                    data=datos or {},
+                    token=token,
+                )
+                mensajes.append(msg)
+
+            response = self.messaging_client.send_each(mensajes)
+
             return {
                 "exitosos": response.success_count,
                 "fallidos": response.failure_count,
-                "respuestas": response.responses
+                "respuestas": response.responses,
             }
         except Exception as e:
             print(f"Error enviando notificaciones multicast FCM: {e}")

@@ -304,9 +304,7 @@ class NotificacionService:
         notificacion_id: int,
         datos: dict,
     ) -> dict:
-        """Envia push notifications via FCM"""
-        from app.infrastructure.notifications.fcm_client import FCMClient
-
+        """Envia push notification a todos los destinatarios usando multicast."""
         tokens_por_persona = (
             await self.firestore_sync.obtener_tokens_por_personas(
                 destinatario_ids
@@ -320,32 +318,33 @@ class NotificacionService:
                 "errores": ["Ningun destinatario tiene tokens FCM"],
             }
 
-        fcm = FCMClient()
         datos_fcm = {
             **datos,
             "notificacion_id": str(notificacion_id),
         }
 
-        exitosos = 0
-        fallidos = 0
-        errores = []
-
+        todos_los_tokens = []
         for persona_id, tokens in tokens_por_persona.items():
-            for token in tokens:
-                try:
-                    fcm.enviar_notificacion_push(
-                        token=token,
-                        titulo=titulo,
-                        cuerpo=cuerpo,
-                        datos=datos_fcm,
-                    )
-                    exitosos += 1
-                except Exception as e:
-                    fallidos += 1
-                    errores.append(f"Token {token[:10]}...: {str(e)}")
+            todos_los_tokens.extend(tokens)
+
+        tokens_unicos = list(set(todos_los_tokens))
+
+        if not tokens_unicos:
+            return {
+                "exitosos": 0,
+                "fallidos": 0,
+                "errores": ["Tokens FCM vacios"],
+            }
+
+        resultado = await self.push_service.enviar_push_multicast(
+            tokens=tokens_unicos,
+            titulo=titulo,
+            cuerpo=cuerpo,
+            datos=datos_fcm,
+        )
 
         return {
-            "exitosos": exitosos,
-            "fallidos": fallidos,
-            "errores": errores,
+            "exitosos": resultado.get("exitosos", 0),
+            "fallidos": resultado.get("fallidos", 0),
+            "errores": resultado.get("errores", []),
         }

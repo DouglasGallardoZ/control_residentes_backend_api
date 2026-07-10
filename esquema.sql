@@ -463,7 +463,8 @@ CREATE TABLE notificacion (
             'codigo_generado','codigo_usado','alerta_seguridad',
             'cuenta_bloqueada','acceso_manual',
             'alta_usuario','baja_usuario',
-            'cambio_estado','actualizacion_datos', 'notificacion_personalizada'
+            'cambio_estado','actualizacion_datos', 'notificacion_personalizada',
+            'solicitud_miembro', 'miembro_aprobado', 'miembro_rechazado'
         )
     )
 );

@@ -99,7 +99,6 @@ class PersonaFoto(Base):
     usuario_creado = Column(String(20), nullable=False)
     fecha_actualizado = Column(DateTime)
     usuario_actualizado = Column(String(20))
-    rostro_embedding = Column(ARRAY(Float))
     
     persona = relationship("Persona", back_populates="fotos")
 
@@ -531,7 +530,9 @@ class Notificacion(Base):
                 'codigo_generado','codigo_usado','alerta_seguridad',
                 'cuenta_bloqueada','acceso_manual',
                 'alta_usuario','baja_usuario',
-                'cambio_estado','actualizacion_datos'
+                'cambio_estado','actualizacion_datos',
+                'notificacion_personalizada','solicitud_miembro',
+                'miembro_aprobado','miembro_rechazado'
             )""",
             name='chk_notificacion_tipo'
         ),

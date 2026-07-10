@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.infrastructure.db import get_db
-from app.infrastructure.db.models import Cuenta, Persona, MiembroVivienda, EventoCuenta, ResidenteVivienda, Vivienda, PropietarioVivienda, Admin
+from app.infrastructure.db.models import Cuenta, Persona, MiembroVivienda, EventoCuenta, ResidenteVivienda, Vivienda, PropietarioVivienda, Admin, PersonaFoto
 from app.interfaces.schemas.schemas import PerfilUsuarioResponse, ViviendaInfo
 from datetime import datetime
 from pydantic import BaseModel
@@ -1011,9 +1011,20 @@ def validar_prospecto_miembro(
             MiembroVivienda.estado == "activo",
             MiembroVivienda.eliminado == False
         ).first()
-        
+
         if miembro:
             vivienda = miembro.vivienda
+
+            tiene_facial = (
+                db.query(PersonaFoto)
+                .filter(
+                    PersonaFoto.persona_titular_fk == persona.persona_pk,
+                    PersonaFoto.eliminado == False,
+                )
+                .first()
+                is not None
+            )
+
             return {
                 "existe": True,
                 "persona_id": persona.persona_pk,
@@ -1028,7 +1039,8 @@ def validar_prospecto_miembro(
                     "manzana": vivienda.manzana,
                     "villa": vivienda.villa
                 } if vivienda else None,
-                "puede_crear_cuenta": True
+                "puede_crear_cuenta": True,
+                "tiene_facial_enrolado": tiene_facial,
             }
         
         # Persona existe pero no está registrada como miembro de familia
