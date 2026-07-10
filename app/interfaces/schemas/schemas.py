@@ -394,3 +394,59 @@ class PerfilUsuarioResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============ VIVIENDA (CRUD ADMIN) ============
+
+
+class ViviendaCreate(BaseModel):
+    manzana: str = Field(
+        ..., min_length=1, max_length=10, description="Numero o letra de manzana"
+    )
+    villa: str = Field(
+        ..., min_length=1, max_length=10, description="Numero de villa"
+    )
+    estado: str = Field(
+        default="activo", pattern=r"^(activo|inactivo)$"
+    )
+    usuario_creado: str = Field(default="api_system")
+
+
+class ViviendaUpdate(BaseModel):
+    manzana: Optional[str] = Field(None, min_length=1, max_length=10)
+    villa: Optional[str] = Field(None, min_length=1, max_length=10)
+    estado: Optional[str] = Field(
+        None, pattern=r"^(activo|inactivo)$"
+    )
+    usuario_actualizado: str = Field(default="api_system")
+
+
+class ViviendaResponse(BaseModel):
+    vivienda_id: int
+    manzana: str
+    villa: str
+    estado: str
+    total_residentes: int = 0
+    total_miembros: int = 0
+    fecha_creado: Optional[datetime] = None
+    fecha_actualizado: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ViviendaListResponse(BaseModel):
+    data: List[ViviendaResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    has_next: bool
+
+
+class ViviendaEstadoUpdate(BaseModel):
+    estado: str = Field(
+        ..., pattern=r"^(activo|inactivo)$"
+    )
+    motivo: Optional[str] = None
+    usuario_actualizado: str = Field(default="api_system")
