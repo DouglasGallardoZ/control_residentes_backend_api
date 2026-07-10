@@ -330,6 +330,64 @@ def obtener_qr(qr_id: int, db: Session = Depends(get_db)):
     return qr
 
 
+@router.put("/{qr_id}/anular", response_model=dict)
+def anular_qr(
+    qr_id: int,
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(obtener_usuario_con_rol),
+):
+    """
+    Anula un QR vigente. Solo el creador del QR puede anularlo.
+    El QR debe estar en estado 'vigente'.
+    """
+    persona_id = usuario.get("persona_id")
+    if not persona_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Usuario no autorizado",
+        )
+
+    cuenta = db.query(Cuenta).filter(
+        Cuenta.persona_titular_fk == persona_id
+    ).first()
+    if not cuenta:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes una cuenta activa",
+        )
+
+    qr = db.query(QRModel).filter(
+        QRModel.qr_pk == qr_id,
+        QRModel.cuenta_autoriza_fk == cuenta.cuenta_pk,
+        QRModel.eliminado == False,
+    ).first()
+    if not qr:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="QR no encontrado",
+        )
+
+    if qr.estado != "vigente":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No se puede anular un QR en estado '{qr.estado}'. Solo QRs vigentes.",
+        )
+
+    from datetime import datetime
+
+    qr.estado = "anulado"
+    qr.fecha_actualizado = datetime.now()
+    qr.usuario_actualizado = usuario.get("email", "api_system")
+    db.commit()
+
+    return {
+        "success": True,
+        "qr_id": qr.qr_pk,
+        "estado": qr.estado,
+        "mensaje": "QR anulado exitosamente",
+    }
+
+
 @router.get("/cuenta/generados", response_model=QRPaginatedResponse)
 def listar_qr_por_cuenta(
     page: int = Query(settings.PAGINATION_DEFAULT_PAGE, ge=1),
