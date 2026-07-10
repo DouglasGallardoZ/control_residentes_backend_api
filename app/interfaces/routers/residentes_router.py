@@ -115,7 +115,7 @@ def desactivar_residente(
     """
     try:
         residente = db.query(ResidenteVivienda).filter(
-            ResidenteVivienda.residente_vivienda_pk == residente_id
+            ResidenteVivienda.persona_residente_fk == residente_id
         ).first()
         
         if not residente:
@@ -167,7 +167,7 @@ def reactivar_residente(
     """
     try:
         residente = db.query(ResidenteVivienda).filter(
-            ResidenteVivienda.residente_vivienda_pk == residente_id
+            ResidenteVivienda.persona_residente_fk == residente_id
         ).first()
         
         if not residente:
