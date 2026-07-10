@@ -232,7 +232,7 @@ def bloquear_cuenta(
     Si cascada=false, bloquea SOLO esa cuenta sin cascada
     """
     try:
-        cuenta_principal = db.query(Cuenta).filter(Cuenta.persona_titular_fk == cuenta_id).first()
+        cuenta_principal = db.query(Cuenta).filter(Cuenta.cuenta_pk == cuenta_id).first()
         if not cuenta_principal:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -332,7 +332,7 @@ def desbloquear_cuenta(
     Si cascada=false, desbloquea SOLO esa cuenta sin cascada
     """
     try:
-        cuenta_principal = db.query(Cuenta).filter(Cuenta.persona_titular_fk == cuenta_id).first()
+        cuenta_principal = db.query(Cuenta).filter(Cuenta.cuenta_pk == cuenta_id).first()
         if not cuenta_principal:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
