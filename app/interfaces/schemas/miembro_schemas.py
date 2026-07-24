@@ -57,6 +57,7 @@ class AprobarRechazarRequest(BaseModel):
     """Schema para PUT /miembros/solicitudes/{id}/aprobar y .../rechazar"""
     usuario_actualizado: str = Field(default="api_system")
     motivo: Optional[str] = None
+    fecha_actualizado: Optional[str] = None
 
 
 class SolicitudAprobadaResponse(BaseModel):

@@ -15,11 +15,12 @@ from app.infrastructure.db.models import (
     Notificacion, NotificacionDestino,
 )
 from app.infrastructure.dependencies import get_notificacion_service
-from app.infrastructure.security.auth import obtener_usuario_con_rol
+from app.infrastructure.security.auth import obtener_usuario_con_rol, requerir_rol
 from app.application.services.notificacion_service import NotificacionService
 from datetime import datetime, date
 from app.infrastructure.utils.time_utils import ahora_sin_tz
 from pydantic import BaseModel, Field
+from typing import Optional
 import json
 
 router = APIRouter(prefix="/api/v1/miembros", tags=["Miembros de Familia"])
@@ -56,17 +57,20 @@ class AgregarMiembroFamiliaRequest(BaseModel):
 class DesactivarMiembroRequest(BaseModel):
     """Schema para desactivar miembro de familia"""
     usuario_actualizado: str = "api_user"
+    fecha_actualizado: Optional[str] = None
 
 
 class ReactivarMiembroRequest(BaseModel):
     """Schema para reactivar miembro de familia"""
     usuario_actualizado: str = "api_user"
+    fecha_actualizado: Optional[str] = None
 
 
 @router.post("/agregar", response_model=dict)
 def agregar_miembro_familia(
     request: AgregarMiembroFamiliaRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Agrega un miembro de familia a un residente
@@ -1008,3 +1012,118 @@ async def consultar_estado_solicitud(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+
+# ═══════════════════════════════════════════════════════════════
+# RESIDENTE GESTIONA SUS MIEMBROS (BLOQUEAR / DESBLOQUEAR)
+# ═══════════════════════════════════════════════════════════════
+
+
+class BloquearDesbloquearRequest(BaseModel):
+    motivo: str = Field(..., min_length=1, description="Motivo del bloqueo/desbloqueo")
+
+
+@router.post(
+    "/{miembro_id}/bloquear", response_model=dict
+)
+def bloquear_miembro_por_residente(
+    miembro_id: int,
+    request: BloquearDesbloquearRequest,
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("residente")),
+):
+    """
+    Permite que un residente bloquee a uno de sus miembros de familia.
+    Solo el titular asociado al miembro puede bloquearlo.
+    """
+    persona_id = usuario.get("persona_id")
+
+    miembro = (
+        db.query(MiembroVivienda)
+        .filter(
+            MiembroVivienda.miembro_vivienda_pk == miembro_id,
+            MiembroVivienda.eliminado == False,
+        )
+        .first()
+    )
+
+    if not miembro:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Miembro no encontrado",
+        )
+
+    if miembro.persona_residente_fk != persona_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene autorizacion sobre este miembro",
+        )
+
+    if miembro.estado == "inactivo":
+        return {
+            "success": True,
+            "mensaje": "Advertencia: la cuenta ya se encuentra inactiva",
+        }
+
+    miembro.estado = "inactivo"
+    miembro.fecha_actualizado = ahora_sin_tz()
+    miembro.usuario_actualizado = usuario.get("email", "api_system")
+    db.commit()
+
+    return {
+        "success": True,
+        "mensaje": "Miembro bloqueado correctamente",
+    }
+
+
+@router.post(
+    "/{miembro_id}/desbloquear", response_model=dict
+)
+def desbloquear_miembro_por_residente(
+    miembro_id: int,
+    request: BloquearDesbloquearRequest,
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("residente")),
+):
+    """
+    Permite que un residente desbloquee a uno de sus miembros de familia.
+    Solo el titular asociado al miembro puede desbloquearlo.
+    """
+    persona_id = usuario.get("persona_id")
+
+    miembro = (
+        db.query(MiembroVivienda)
+        .filter(
+            MiembroVivienda.miembro_vivienda_pk == miembro_id,
+            MiembroVivienda.eliminado == False,
+        )
+        .first()
+    )
+
+    if not miembro:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Miembro no encontrado",
+        )
+
+    if miembro.persona_residente_fk != persona_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene autorizacion sobre este miembro",
+        )
+
+    if miembro.estado == "activo":
+        return {
+            "success": True,
+            "mensaje": "Advertencia: la cuenta ya se encuentra activa",
+        }
+
+    miembro.estado = "activo"
+    miembro.fecha_actualizado = ahora_sin_tz()
+    miembro.usuario_actualizado = usuario.get("email", "api_system")
+    db.commit()
+
+    return {
+        "success": True,
+        "mensaje": "Miembro desbloqueado correctamente",
+    }

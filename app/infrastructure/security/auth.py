@@ -81,6 +81,12 @@ async def obtener_usuario_con_rol(
                 detail="Cuenta no encontrada en el sistema",
             )
 
+        if cuenta.estado != "activo":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Error: cuenta bloqueada o inactiva",
+            )
+
         persona_id = cuenta.persona_titular_fk
 
         rol = "desconocido"

@@ -7,6 +7,7 @@ from app.interfaces.schemas.schemas import (
 from app.infrastructure.db.models import Persona, ResidenteVivienda, Vivienda
 from datetime import datetime
 from app.infrastructure.utils.time_utils import ahora_sin_tz
+from app.infrastructure.security.auth import requerir_rol
 
 router = APIRouter(prefix="/api/v1/residentes", tags=["Residentes"])
 
@@ -14,7 +15,8 @@ router = APIRouter(prefix="/api/v1/residentes", tags=["Residentes"])
 @router.post("", response_model=dict)
 def registrar_residente(
     request: ResidenteCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Registra un nuevo residente
@@ -107,7 +109,8 @@ def registrar_residente(
 def desactivar_residente(
     residente_id: int,
     request: ResidenteDesactivar,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Desactiva un residente
@@ -159,7 +162,8 @@ def desactivar_residente(
 def reactivar_residente(
     residente_id: int,
     request: ResidenteReactivar,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Reactiva un residente previamente desactivado
@@ -209,7 +213,8 @@ def reactivar_residente(
 def agregar_foto_residente(
     persona_id: int,
     request: AgregarFotoRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Agrega una foto al residente
@@ -267,7 +272,8 @@ def agregar_foto_residente(
 @router.get("/{persona_id}/fotos", response_model=dict)
 def obtener_fotos_residente(
     persona_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Obtiene todas las fotos del residente
@@ -314,7 +320,8 @@ def obtener_fotos_residente(
 def obtener_residentes_por_ubicacion(
     manzana: str,
     villa: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Obtiene todos los residentes de una vivienda por manzana y villa

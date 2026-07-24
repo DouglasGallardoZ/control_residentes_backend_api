@@ -225,6 +225,9 @@ async def listar_destinatarios(
     villa: Optional[str] = Query(
         None, description="Filtrar por villa (requiere manzana)"
     ),
+    tipo: Optional[str] = Query(
+        None, description="Filtrar por tipo: residente, propietario, miembro_familia"
+    ),
     usuario: dict = Depends(requerir_rol("admin")),
     db: Session = Depends(get_db),
 ):
@@ -239,7 +242,7 @@ async def listar_destinatarios(
     - sin filtros: Retorna todos los residentes y miembros
     """
     destinatarios = await _obtener_destinatarios(
-        db, busqueda, manzana, villa
+        db, busqueda, manzana, villa, tipo
     )
     return destinatarios
 
@@ -280,6 +283,7 @@ async def _obtener_destinatarios(
     busqueda: Optional[str] = None,
     manzana: Optional[str] = None,
     villa: Optional[str] = None,
+    tipo: Optional[str] = None,
 ) -> list:
     """Obtiene destinatarios con filtros opcionales por ubicacion"""
     from app.infrastructure.db.models import (
@@ -382,6 +386,9 @@ async def _obtener_destinatarios(
                 "villa": m.villa,
                 "tipo": "miembro_familia",
             })
+
+    if tipo:
+        resultado = [r for r in resultado if r.get("tipo") == tipo]
 
     return sorted(
         resultado,

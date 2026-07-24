@@ -8,6 +8,7 @@ from app.infrastructure.db.models import Persona, PropietarioVivienda, Residente
 from datetime import datetime, date
 from pydantic import BaseModel
 from app.infrastructure.utils.time_utils import ahora_sin_tz
+from app.infrastructure.security.auth import requerir_rol
 
 router = APIRouter(prefix="/api/v1/propietarios", tags=["Propietarios"])
 
@@ -75,7 +76,8 @@ class ActualizarPropietarioRequest(BaseModel):
 @router.post("", response_model=dict)
 def registrar_propietario(
     request: RegistrarPropietarioRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Registra un nuevo propietario y lo asigna a una vivienda
@@ -181,7 +183,8 @@ def registrar_propietario(
 def registrar_conyuge_propietario(
     propietario_id: int,
     request: RegistrarConyyugeRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Registra un cónyuge como copropietario
@@ -274,7 +277,8 @@ def registrar_conyuge_propietario(
 @router.get("/{vivienda_id}", response_model=dict)
 def obtener_propietarios_vivienda(
     vivienda_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Obtiene todos los propietarios de una vivienda
@@ -324,7 +328,8 @@ def eliminar_propietario(
     propietario_id: int,
     motivo_eliminado: str = "Cambio de propietario",
     usuario_actualizado: str = "api_user",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Elimina un propietario (soft delete)
@@ -366,7 +371,8 @@ def eliminar_propietario(
 def actualizar_propietario(
     propietario_id: int,
     request: ActualizarPropietarioRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Actualiza información del propietario
@@ -442,7 +448,8 @@ def actualizar_propietario(
 def baja_propietario(
     propietario_id: int,
     request: BajaRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Baja de propietario (cambiar estado a inactivo)
@@ -515,150 +522,33 @@ def baja_propietario(
         )
 
 
+# DEPRECADO: usar POST /api/v1/viviendas/cambio-propietario
 @router.post("/cambio-propiedad", response_model=dict)
 def cambio_propietario_vivienda(
     request: CambioPropiedadRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
-    Cambio de propietario de vivienda (transferencia completa)
-    RF-P05: Desactiva propietario actual, activa nuevo y actualiza residente principal
-    Si residente actual = propietario anterior, nuevo propietario se registra como residente activo
+    [DEPRECADO] Cambio de propietario de vivienda.
+    Usar POST /api/v1/viviendas/cambio-propietario en su lugar.
     """
-    try:
-        if not request.motivo_cambio:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="El motivo del cambio es obligatorio"
-            )
-        
-        # Validar vivienda existe
-        vivienda = db.query(Vivienda).filter(
-            Vivienda.vivienda_pk == request.vivienda_id
-        ).first()
-        
-        if not vivienda:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Vivienda no encontrada"
-            )
-        
-        # Obtener propietario actual
-        propietario_actual = db.query(PropietarioVivienda).filter(
-            PropietarioVivienda.vivienda_propiedad_fk == request.vivienda_id,
-            PropietarioVivienda.estado == "activo",
-            PropietarioVivienda.eliminado == False
-        ).first()
-        
-        if not propietario_actual:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Vivienda no tiene propietario activo"
-            )
-        
-        # Obtener nuevo propietario
-        nueva_persona = db.query(Persona).filter(
-            Persona.persona_pk == request.nuevo_propietario_id,
-            Persona.estado == "activo"
-        ).first()
-        
-        if not nueva_persona:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Nueva persona no encontrada o inactiva"
-            )
-        
-        # Obtener residente actual (para saber si es el propietario)
-        residente_actual = db.query(ResidenteVivienda).filter(
-            ResidenteVivienda.vivienda_reside_fk == request.vivienda_id,
-            ResidenteVivienda.estado == "activo"
-        ).first()
-        
-        propietario_anterior_es_residente = (
-            residente_actual and 
-            residente_actual.persona_residente_fk == propietario_actual.persona_propietario_fk
-        )
-        
-        # Desactivar propietario actual
-        propietario_actual.estado = "inactivo"
-        propietario_actual.fecha_actualizado = ahora_sin_tz()
-        propietario_actual.usuario_actualizado = request.usuario_actualizado
-        propietario_actual.motivo_eliminado = f"Cambio de propietario: {request.motivo_cambio}"
-        
-        # Buscar o crear nuevo propietario
-        nuevo_propietario = db.query(PropietarioVivienda).filter(
-            PropietarioVivienda.persona_propietario_fk == request.nuevo_propietario_id,
-            PropietarioVivienda.vivienda_propiedad_fk == request.vivienda_id
-        ).first()
-        
-        if nuevo_propietario:
-            # Activar si existe pero estaba inactivo
-            nuevo_propietario.estado = "activo"
-            nuevo_propietario.fecha_actualizado = ahora_sin_tz()
-            nuevo_propietario.usuario_actualizado = request.usuario_actualizado
-        else:
-            # Crear nuevo registro de propietario
-            nuevo_propietario = PropietarioVivienda(
-                persona_propietario_fk=request.nuevo_propietario_id,
-                vivienda_propiedad_fk=request.vivienda_id,
-                estado="activo",
-                usuario_creado=request.usuario_actualizado
-            )
-            db.add(nuevo_propietario)
-        
-        # Si propietario anterior era residente, registrar nuevo como residente
-        residente_nuevo_creado = False
-        if propietario_anterior_es_residente:
-            # Buscar si nuevo propietario ya es residente
-            residente_nuevo = db.query(ResidenteVivienda).filter(
-                ResidenteVivienda.persona_residente_fk == request.nuevo_propietario_id,
-                ResidenteVivienda.vivienda_reside_fk == request.vivienda_id
-            ).first()
-            
-            if residente_nuevo:
-                # Activar si existe pero estaba inactivo
-                residente_nuevo.estado = "activo"
-                residente_nuevo.fecha_actualizado = ahora_sin_tz()
-                residente_nuevo.usuario_actualizado = request.usuario_actualizado
-            else:
-                # Crear nuevo registro de residente
-                residente_nuevo = ResidenteVivienda(
-                    persona_residente_fk=request.nuevo_propietario_id,
-                    vivienda_reside_fk=request.vivienda_id,
-                    estado="activo",
-                    usuario_creado=request.usuario_actualizado
-                )
-                db.add(residente_nuevo)
-                residente_nuevo_creado = True
-        
-        db.commit()
-        
-        return {
-            "success": True,
-            "mensaje": "Cambio de propietario realizado correctamente",
-            "vivienda_id": request.vivienda_id,
-            "propietario_anterior_id": propietario_actual.propietario_vivienda_pk,
-            "propietario_nuevo_id": request.nuevo_propietario_id,
-            "propietario_era_residente": propietario_anterior_es_residente,
-            "residente_nuevo_creado": residente_nuevo_creado,
-            "motivo": request.motivo_cambio
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+    import warnings
+    warnings.warn(
+        "POST /propietarios/cambio-propiedad esta deprecado. "
+        "Usar POST /viviendas/cambio-propietario",
+        DeprecationWarning,
+    )
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 
 
 @router.get("/manzana-villa/{manzana}/{villa}", response_model=dict)
 def obtener_propietarios_por_ubicacion(
     manzana: str,
     villa: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Obtiene todos los propietarios de una vivienda por manzana y villa

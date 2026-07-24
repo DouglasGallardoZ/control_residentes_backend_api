@@ -210,7 +210,8 @@ class NotificacionService:
         db=None,
     ) -> list:
         from app.infrastructure.db.models import (
-            Persona, ResidenteVivienda, MiembroVivienda, Vivienda,
+            Persona, ResidenteVivienda, MiembroVivienda, PropietarioVivienda,
+            Vivienda,
         )
         from app.domain.entities.notificacion_entities import DestinatarioInfo
 
@@ -232,17 +233,36 @@ class NotificacionService:
             manzana = None
             villa = None
             tipo = "residente"
+            encontrado = False
+
             residente = db.query(ResidenteVivienda).filter(
                 ResidenteVivienda.persona_residente_fk == persona.persona_pk,
                 ResidenteVivienda.estado == "activo",
                 ResidenteVivienda.eliminado == False,
             ).first()
             if residente:
+                tipo = "residente"
+                encontrado = True
                 vivienda = residente.vivienda
                 if vivienda:
                     manzana = vivienda.manzana
                     villa = vivienda.villa
-            else:
+
+            if not encontrado:
+                propietario = db.query(PropietarioVivienda).filter(
+                    PropietarioVivienda.persona_propietario_fk == persona.persona_pk,
+                    PropietarioVivienda.estado == "activo",
+                    PropietarioVivienda.eliminado == False,
+                ).first()
+                if propietario:
+                    tipo = "propietario"
+                    encontrado = True
+                    vivienda = propietario.vivienda
+                    if vivienda:
+                        manzana = vivienda.manzana
+                        villa = vivienda.villa
+
+            if not encontrado:
                 miembro = db.query(MiembroVivienda).filter(
                     MiembroVivienda.persona_miembro_fk == persona.persona_pk,
                     MiembroVivienda.estado == "activo",
@@ -250,12 +270,15 @@ class NotificacionService:
                 ).first()
                 if miembro:
                     tipo = "miembro_familia"
+                    encontrado = True
                     vivienda = miembro.vivienda
                     if vivienda:
                         manzana = vivienda.manzana
                         villa = vivienda.villa
-                else:
-                    continue
+
+            if not encontrado:
+                continue
+
             resultado.append(
                 DestinatarioInfo(
                     persona_id=persona.persona_pk,
@@ -271,10 +294,10 @@ class NotificacionService:
     # ─── INTERNOS ──────────────────────────────────────────
 
     async def _obtener_todos_los_residentes(self) -> List[int]:
-        """Obtiene los IDs de todos los residentes y miembros activos"""
+        """Obtiene los IDs de todos los residentes, miembros y propietarios activos"""
         from app.infrastructure.db.database import SessionLocal
         from app.infrastructure.db.models import (
-            ResidenteVivienda, MiembroVivienda, Persona,
+            ResidenteVivienda, MiembroVivienda, PropietarioVivienda,
         )
 
         db = SessionLocal()
@@ -292,6 +315,12 @@ class NotificacionService:
             ).all()
             for m in miembros:
                 ids.add(m.persona_miembro_fk)
+            propietarios = db.query(PropietarioVivienda).filter(
+                PropietarioVivienda.estado == "activo",
+                PropietarioVivienda.eliminado == False,
+            ).all()
+            for p in propietarios:
+                ids.add(p.persona_propietario_fk)
             return list(ids)
         finally:
             db.close()

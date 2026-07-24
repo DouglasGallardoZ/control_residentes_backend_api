@@ -78,7 +78,8 @@ class QRService:
 
 
 class NotificacionService:
-    """Servicio para notificaciones"""
+    """[DEPRECATED] Usar notificacion_service.py:NotificacionService en su lugar.
+    Esta version tiene stubs y no integra Firestore ni FCM."""
     
     def __init__(self, db: Session):
         self.db = db

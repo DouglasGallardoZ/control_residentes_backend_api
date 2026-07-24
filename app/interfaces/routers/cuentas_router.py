@@ -5,7 +5,9 @@ from app.infrastructure.db.models import Cuenta, Persona, MiembroVivienda, Event
 from app.interfaces.schemas.schemas import PerfilUsuarioResponse, ViviendaInfo
 from datetime import datetime
 from pydantic import BaseModel
+from typing import Optional
 from app.infrastructure.utils.time_utils import ahora_sin_tz
+from app.infrastructure.security.auth import requerir_rol, obtener_usuario_con_rol
 
 router = APIRouter(prefix="/api/v1/cuentas", tags=["Cuentas"])
 
@@ -22,7 +24,8 @@ class BloquearDesbloquearRequest(BaseModel):
     """Schema para bloquear/desbloquear cuenta"""
     usuario_actualizado: str
     motivo: str = "Cuenta modificada"
-    cascada: bool = True  # True = bloquea/desbloquea miembros si es residente, False = solo esa cuenta
+    cascada: bool = True
+    fecha_actualizado: Optional[str] = None
 
 
 @router.post("/residente/firebase", response_model=dict)
@@ -224,7 +227,8 @@ def crear_cuenta_miembro_familia_firebase(
 def bloquear_cuenta(
     cuenta_id: int,
     request: BloquearDesbloquearRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Bloquea una cuenta individual (RFC-C07)
@@ -324,7 +328,8 @@ def bloquear_cuenta(
 def desbloquear_cuenta(
     cuenta_id: int,
     request: BloquearDesbloquearRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Desbloquea una cuenta individual (RFC-C08)
@@ -425,7 +430,8 @@ def eliminar_cuenta(
     cuenta_id: int,
     usuario_actualizado: str,
     motivo: str = "Cuenta eliminada",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Elimina una cuenta de forma permanente (soft delete)
@@ -480,7 +486,8 @@ def eliminar_cuenta(
 @router.get("/perfil/{firebase_uid}", response_model=dict)
 def obtener_perfil_usuario(
     firebase_uid: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(obtener_usuario_con_rol),
 ):
     """
     Obtiene la información completa del perfil de un usuario basado en su Firebase UID
@@ -625,7 +632,8 @@ def obtener_perfil_usuario(
 @router.get("/usuario/por-correo/{correo}", response_model=dict)
 def obtener_usuario_por_correo(
     correo: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Obtiene la información de un usuario por su correo electrónico
@@ -730,7 +738,8 @@ def obtener_usuario_por_correo(
 def obtener_usuarios_vivienda(
     manzana: str,
     villa: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(obtener_usuario_con_rol),
 ):
     """
     Obtiene todos los usuarios (residentes y miembros con cuenta) de una vivienda por manzana y villa

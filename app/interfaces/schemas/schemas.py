@@ -98,6 +98,7 @@ class ResidenteResponse(PersonaResponse):
 class ResidenteDesactivar(BaseModel):
     motivo: str
     usuario_actualizado: str
+    fecha_actualizado: Optional[str] = None
 
 
 class AgregarFotoRequest(BaseModel):
@@ -110,6 +111,7 @@ class AgregarFotoRequest(BaseModel):
 class ResidenteReactivar(BaseModel):
     motivo: str
     usuario_actualizado: str
+    fecha_actualizado: Optional[str] = None
 
 
 # ============ MIEMBRO DE FAMILIA ============
@@ -419,6 +421,7 @@ class ViviendaUpdate(BaseModel):
         None, pattern=r"^(activo|inactivo)$"
     )
     usuario_actualizado: str = Field(default="api_system")
+    fecha_actualizado: Optional[str] = None
 
 
 class ViviendaResponse(BaseModel):
@@ -428,6 +431,9 @@ class ViviendaResponse(BaseModel):
     estado: str
     total_residentes: int = 0
     total_miembros: int = 0
+    propietarios: list = Field(default_factory=list)
+    residentes_count: int = 0
+    miembros_count: int = 0
     fecha_creado: Optional[datetime] = None
     fecha_actualizado: Optional[datetime] = None
 
@@ -450,3 +456,65 @@ class ViviendaEstadoUpdate(BaseModel):
     )
     motivo: Optional[str] = None
     usuario_actualizado: str = Field(default="api_system")
+    fecha_actualizado: Optional[str] = None
+
+
+class ViviendaCambioPropietarioRequest(BaseModel):
+    vivienda_id: int = Field(..., ge=1)
+    nuevo_propietario_id: int = Field(..., ge=1)
+    tipo: str = Field(
+        default="titular", pattern=r"^(titular|copropietario)$"
+    )
+    motivo: str = Field(..., min_length=1)
+    usuario_actualizado: str = Field(default="api_system")
+    fecha_actualizado: Optional[str] = None
+
+
+class ViviendaCambioPropietarioResponse(BaseModel):
+    mensaje: str
+    vivienda_id: int
+    propietario_anterior_id: Optional[int] = None
+    nuevo_propietario_id: int
+    tipo: str
+
+
+class PropietarioEnVivienda(BaseModel):
+    persona_id: int
+    nombres: str
+    apellidos: str
+    identificacion: str
+    correo: Optional[str] = None
+    celular: Optional[str] = None
+    tipo: str
+    estado: str
+
+
+class ResidenteEnVivienda(BaseModel):
+    persona_id: int
+    nombres: str
+    apellidos: str
+    identificacion: str
+    correo: Optional[str] = None
+    celular: Optional[str] = None
+    estado: str
+
+
+class MiembroEnVivienda(BaseModel):
+    persona_id: int
+    nombres: str
+    apellidos: str
+    identificacion: str
+    parentesco: str
+    estado: str
+    residente_id: int
+    residente_nombre: str
+
+
+class ViviendaDetalleResponse(BaseModel):
+    vivienda_id: int
+    manzana: str
+    villa: str
+    estado: str
+    propietarios: list = Field(default_factory=list)
+    residentes: list = Field(default_factory=list)
+    miembros: list = Field(default_factory=list)
