@@ -4,11 +4,19 @@ from app.infrastructure.db import get_db
 from app.interfaces.schemas.schemas import (
     PersonaCreate, PersonaResponse
 )
+
+from app.infrastructure.security.auth import requerir_rol
 from app.infrastructure.db.models import Persona, PropietarioVivienda, ResidenteVivienda, Vivienda
 from datetime import datetime, date
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, EmailStr
 from app.infrastructure.utils.time_utils import ahora_sin_tz
-from app.infrastructure.security.auth import requerir_rol
+from app.infrastructure.utils.auditoria_helpers import registrar_bitacora
+from app.domain.validators import (
+    validar_cedula_ecuatoriana,
+    validar_edad_minima,
+    validar_celular
+)
+import json
 
 router = APIRouter(prefix="/api/v1/propietarios", tags=["Propietarios"])
 
@@ -31,30 +39,71 @@ class RegistrarPropietarioRequest(BaseModel):
     villa: str
     
     # Auditoría
-    usuario_creado: str = "api_user"
+    usuario_creado: str = ""
 
 
 class RegistrarConyyugeRequest(BaseModel):
     """Schema para registrar cónyuge como copropietario"""
-    # Datos de la persona
     identificacion: str
     tipo_identificacion: str
     nombres: str
     apellidos: str
     fecha_nacimiento: date
     nacionalidad: str = "Ecuador"
-    correo: str
+    correo: EmailStr
     celular: str
     direccion_alternativa: str = None
-    
-    # Auditoría
-    usuario_creado: str = "api_user"
+    usuario_creado: str = ""
+
+    @field_validator("identificacion")
+    @classmethod
+    def validar_identificacion(cls, v, info):
+        tipo = info.data.get("tipo_identificacion", "cedula")
+        if tipo == "cedula":
+            if not v or not v.isdigit() or len(v) != 10:
+                raise ValueError("Error: cedula ecuatoriana invalida")
+            if not validar_cedula_ecuatoriana(v):
+                raise ValueError("Error: cedula ecuatoriana invalida")
+        elif tipo in ("pasaporte", "otro"):
+            if not v or v.strip() == "":
+                raise ValueError("Error: identificacion no puede estar vacia")
+        return v
+
+    @field_validator("nombres")
+    @classmethod
+    def validar_nombres(cls, v):
+        if not v or v.strip() == "":
+            raise ValueError("Error: los nombres son obligatorios")
+        return v.strip()
+
+    @field_validator("apellidos")
+    @classmethod
+    def validar_apellidos(cls, v):
+        if not v or v.strip() == "":
+            raise ValueError("Error: los apellidos son obligatorios")
+        return v.strip()
+
+    @field_validator("fecha_nacimiento")
+    @classmethod
+    def validar_fecha(cls, v):
+        error = validar_edad_minima(v)
+        if error:
+            raise ValueError(error)
+        return v
+
+    @field_validator("celular")
+    @classmethod
+    def validar_celular(cls, v):
+        error = validar_celular(v)
+        if error:
+            raise ValueError(error)
+        return v
 
 
 class BajaRequest(BaseModel):
     """Schema para baja de propietario"""
     motivo: str
-    usuario_actualizado: str = "api_user"
+    usuario_actualizado: str = ""
 
 
 class CambioPropiedadRequest(BaseModel):
@@ -62,7 +111,7 @@ class CambioPropiedadRequest(BaseModel):
     vivienda_id: int
     nuevo_propietario_id: int
     motivo_cambio: str
-    usuario_actualizado: str = "api_user"
+    usuario_actualizado: str = ""
 
 
 class ActualizarPropietarioRequest(BaseModel):
@@ -70,7 +119,7 @@ class ActualizarPropietarioRequest(BaseModel):
     correo_nuevo: str = None
     celular_nuevo: str = None
     direccion_alternativa: str = None
-    usuario_actualizado: str = "api_user"
+    usuario_actualizado: str = ""
 
 
 @router.post("", response_model=dict)
@@ -160,7 +209,11 @@ def registrar_propietario(
         # db.add(residente)
         db.commit()
         db.refresh(persona)
-        
+
+        registrar_bitacora(db, usuario, "propietario_vivienda",
+                           propietario.propietario_vivienda_pk, "crear",
+                           f"Propietario {persona.nombres} {persona.apellidos} creado")
+
         return {
             "success": True,
             "persona_id": persona.persona_pk,
@@ -179,6 +232,55 @@ def registrar_propietario(
         )
 
 
+@router.get("/{propietario_id}/conyuge", response_model=dict)
+def obtener_conyuge(
+    propietario_id: int,
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
+):
+    """Obtiene el conyuge de un propietario."""
+    propietario = db.query(PropietarioVivienda).filter(
+        PropietarioVivienda.propietario_vivienda_pk == propietario_id,
+        PropietarioVivienda.eliminado == False,
+    ).first()
+    if not propietario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Propietario no encontrado",
+        )
+
+    conyuge = (
+        db.query(PropietarioVivienda, Persona)
+        .join(
+            Persona,
+            PropietarioVivienda.persona_propietario_fk == Persona.persona_pk,
+        )
+        .filter(
+            PropietarioVivienda.vivienda_propiedad_fk == propietario.vivienda_propiedad_fk,
+            PropietarioVivienda.tipo_propietario == "conyuge",
+            PropietarioVivienda.eliminado == False,
+            Persona.eliminado == False,
+        )
+        .first()
+    )
+
+    if not conyuge:
+        return {"conyuge": None}
+
+    return {
+        "conyuge": {
+            "conyuge_id": conyuge[0].propietario_vivienda_pk,
+            "persona_id": conyuge[1].persona_pk,
+            "nombres": conyuge[1].nombres,
+            "apellidos": conyuge[1].apellidos,
+            "identificacion": conyuge[1].identificacion,
+            "correo": conyuge[1].correo,
+            "celular": conyuge[1].celular,
+            "estado": conyuge[0].estado,
+        }
+    }
+
+
 @router.post("/{propietario_id}/conyuge", response_model=dict)
 def registrar_conyuge_propietario(
     propietario_id: int,
@@ -191,14 +293,16 @@ def registrar_conyuge_propietario(
     RF-P02: Registrar cónyuge
     """
     try:
-        # Validar propietario existe
+        # Validar propietario existe y activo
         propietario = db.query(PropietarioVivienda).filter(
-            PropietarioVivienda.propietario_vivienda_pk == propietario_id
+            PropietarioVivienda.propietario_vivienda_pk == propietario_id,
+            PropietarioVivienda.estado == "activo",
+            PropietarioVivienda.eliminado == False,
         ).first()
         if not propietario:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Propietario no encontrado"
+                detail="Propietario no encontrado o inactivo"
             )
         
         vivienda_id = propietario.vivienda_propiedad_fk
@@ -255,7 +359,14 @@ def registrar_conyuge_propietario(
         
         db.add(conyuge)
         db.commit()
-        
+        db.refresh(persona)
+        db.refresh(conyuge)
+
+        registrar_bitacora(db, usuario, "propietario_vivienda",
+                           conyuge.propietario_vivienda_pk, "crear_conyuge",
+                           f"Conyuge registrado para propietario {propietario_id} en Mz {propietario.vivienda.manzana}, Villa {propietario.vivienda.villa}",
+                           valor_nuevo=json.dumps({"persona_id": persona.persona_pk, "vivienda_id": vivienda_id, "tipo": "conyuge"}))
+
         return {
             "success": True,
             "persona_id": persona.persona_pk,
@@ -297,21 +408,26 @@ def obtener_propietarios_vivienda(
         ).all()
         
         propietarios_data = []
+        conyuge_data = None
         for prop in propietarios:
             persona = prop.persona
-            propietarios_data.append({
+            item = {
                 "propietario_id": prop.propietario_vivienda_pk,
                 "persona_id": persona.persona_pk,
                 "nombres": f"{persona.nombres} {persona.apellidos}",
                 "identificacion": persona.identificacion,
                 "correo": persona.correo,
                 "celular": persona.celular
-            })
-        
+            }
+            propietarios_data.append(item)
+            if prop.tipo_propietario == "conyuge" and not conyuge_data:
+                conyuge_data = item
+
         return {
             "vivienda_id": vivienda_id,
             "total_propietarios": len(propietarios_data),
-            "propietarios": propietarios_data
+            "propietarios": propietarios_data,
+            "conyuge": conyuge_data,
         }
     
     except HTTPException:
@@ -327,7 +443,7 @@ def obtener_propietarios_vivienda(
 def eliminar_propietario(
     propietario_id: int,
     motivo_eliminado: str = "Cambio de propietario",
-    usuario_actualizado: str = "api_user",
+    usuario_actualizado: str = "",
     db: Session = Depends(get_db),
     usuario: dict = Depends(requerir_rol("admin")),
 ):
@@ -422,7 +538,11 @@ def actualizar_propietario(
         persona.usuario_actualizado = request.usuario_actualizado
         
         db.commit()
-        
+
+        registrar_bitacora(db, usuario, "propietario_vivienda",
+                           propietario_id, "actualizar",
+                           f"Propietario {propietario_id} actualizado")
+
         return {
             "success": True,
             "mensaje": "Información del propietario actualizada correctamente",
@@ -504,7 +624,12 @@ def baja_propietario(
             conyuge_procesado = True
         
         db.commit()
-        
+
+        registrar_bitacora(db, usuario, "propietario_vivienda",
+                           propietario_id, "baja",
+                           f"Propietario {propietario_id} dado de baja. Motivo: {request.motivo}",
+                           valor_anterior="activo", valor_nuevo="inactivo")
+
         return {
             "mensaje": "Propietario dado de baja correctamente",
             "propietario_id": propietario_id,
@@ -520,6 +645,68 @@ def baja_propietario(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+
+@router.post("/{propietario_id}/desbloquear", response_model=dict)
+def desbloquear_propietario(
+    propietario_id: int,
+    request: dict,
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
+):
+    """Reactiva un propietario que fue dado de baja. Tambien reactiva al conyuge si existe."""
+    motivo = request.get("motivo")
+    if not motivo or not motivo.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Error: el motivo de desbloqueo es obligatorio",
+        )
+
+    propietario = db.query(PropietarioVivienda).filter(
+        PropietarioVivienda.propietario_vivienda_pk == propietario_id,
+        PropietarioVivienda.eliminado == False,
+    ).first()
+    if not propietario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Propietario no encontrado",
+        )
+    if propietario.estado == "activo":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Advertencia: el propietario ya se encuentra activo",
+        )
+
+    propietario.estado = "activo"
+    propietario.fecha_actualizado = datetime.utcnow()
+
+    conyuge = db.query(PropietarioVivienda).filter(
+        PropietarioVivienda.vivienda_propiedad_fk == propietario.vivienda_propiedad_fk,
+        PropietarioVivienda.tipo_propietario == "conyuge",
+        PropietarioVivienda.estado == "inactivo",
+        PropietarioVivienda.eliminado == False,
+    ).first()
+    conyuge_reactivado = False
+    if conyuge:
+        conyuge.estado = "activo"
+        conyuge.fecha_actualizado = datetime.utcnow()
+        conyuge_reactivado = True
+
+    db.commit()
+
+    registrar_bitacora(db, usuario, "propietario_vivienda", propietario_id,
+                       "desbloquear",
+                       f"Propietario {propietario_id} desbloqueado. Motivo: {motivo}",
+                       valor_anterior="inactivo", valor_nuevo="activo")
+
+    respuesta = "Propietario desbloqueado correctamente"
+    if conyuge_reactivado:
+        respuesta += " (conyuge tambien reactivado)"
+    return {
+        "mensaje": respuesta,
+        "propietario_id": propietario_id,
+        "conyuge_reactivado": conyuge_reactivado,
+    }
 
 
 # DEPRECADO: usar POST /api/v1/viviendas/cambio-propietario
@@ -575,9 +762,10 @@ def obtener_propietarios_por_ubicacion(
         ).all()
         
         propietarios_data = []
+        conyuge_data = None
         for propietario in propietarios:
             persona = propietario.persona
-            propietarios_data.append({
+            item = {
                 "propietario_id": propietario.propietario_vivienda_pk,
                 "persona_id": persona.persona_pk,
                 "identificacion": persona.identificacion,
@@ -587,14 +775,18 @@ def obtener_propietarios_por_ubicacion(
                 "celular": persona.celular,
                 "estado": propietario.estado,
                 "tipo_propietario": propietario.tipo_propietario
-            })
-        
+            }
+            propietarios_data.append(item)
+            if propietario.tipo_propietario == "conyuge" and not conyuge_data:
+                conyuge_data = item
+
         return {
             "vivienda_id": vivienda.vivienda_pk,
             "manzana": vivienda.manzana,
             "villa": vivienda.villa,
             "total_propietarios": len(propietarios_data),
-            "propietarios": propietarios_data
+            "propietarios": propietarios_data,
+            "conyuge": conyuge_data,
         }
     
     except HTTPException:
@@ -604,3 +796,67 @@ def obtener_propietarios_por_ubicacion(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+
+# ═══════════════════════════════════════════════════════════════
+# ENDPOINTS DE CONYUGES
+# ═══════════════════════════════════════════════════════════════
+
+
+class ActualizarConyugeRequest(BaseModel):
+    correo: str = None
+    celular: str = None
+    usuario_actualizado: str = ""
+
+
+@router.put("/conyuges/{conyuge_id}", response_model=dict)
+def actualizar_conyuge(
+    conyuge_id: int,
+    request: ActualizarConyugeRequest,
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
+):
+    """Actualiza correo y celular de un conyuge."""
+    prop = db.query(PropietarioVivienda).filter(
+        PropietarioVivienda.propietario_vivienda_pk == conyuge_id,
+        PropietarioVivienda.tipo_propietario == "conyuge",
+        PropietarioVivienda.eliminado == False,
+    ).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Conyuge no encontrado")
+    persona = db.query(Persona).filter(
+        Persona.persona_pk == prop.persona_propietario_fk
+    ).first()
+    if request.correo:
+        persona.correo = request.correo
+    if request.celular:
+        persona.celular = request.celular
+    persona.fecha_actualizado = ahora_sin_tz()
+    persona.usuario_actualizado = request.usuario_actualizado
+    db.commit()
+    return {"success": True, "mensaje": "Conyuge actualizado correctamente"}
+
+
+@router.delete("/conyuges/{conyuge_id}", response_model=dict)
+def eliminar_conyuge(
+    conyuge_id: int,
+    motivo: str = "Eliminacion de conyuge",
+    usuario_actualizado: str = "",
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
+):
+    """Elimina (soft delete) un conyuge."""
+    prop = db.query(PropietarioVivienda).filter(
+        PropietarioVivienda.propietario_vivienda_pk == conyuge_id,
+        PropietarioVivienda.tipo_propietario == "conyuge",
+        PropietarioVivienda.eliminado == False,
+    ).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Conyuge no encontrado")
+    prop.eliminado = True
+    prop.motivo_eliminado = motivo
+    prop.estado = "inactivo"
+    prop.fecha_actualizado = ahora_sin_tz()
+    prop.usuario_actualizado = usuario_actualizado
+    db.commit()
+    return {"success": True, "mensaje": "Conyuge eliminado correctamente"}

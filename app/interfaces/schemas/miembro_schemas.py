@@ -1,6 +1,12 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import date, datetime
 from typing import Optional, List
+
+from app.domain.validators import (
+    validar_identificacion,
+    validar_edad_minima,
+    validar_celular,
+)
 
 
 class SolicitarMiembroRequest(BaseModel):
@@ -33,6 +39,31 @@ class SolicitarMiembroRequest(BaseModel):
         description="Plataforma del dispositivo: android, ios, web",
     )
 
+    @field_validator("identificacion")
+    @classmethod
+    def validar_id(cls, v, info):
+        tipo = info.data.get("tipo_identificacion", "cedula")
+        error = validar_identificacion(v, tipo)
+        if error:
+            raise ValueError(error)
+        return v
+
+    @field_validator("fecha_nacimiento")
+    @classmethod
+    def validar_fecha(cls, v):
+        error = validar_edad_minima(v)
+        if error:
+            raise ValueError(error)
+        return v
+
+    @field_validator("celular")
+    @classmethod
+    def validar_tel(cls, v):
+        error = validar_celular(v)
+        if error:
+            raise ValueError(error)
+        return v
+
 
 class SolicitudPendienteResponse(BaseModel):
     """Schema para respuesta individual en GET /miembros/solicitudes/pendientes"""
@@ -55,7 +86,7 @@ class SolicitudesPendientesResponse(BaseModel):
 
 class AprobarRechazarRequest(BaseModel):
     """Schema para PUT /miembros/solicitudes/{id}/aprobar y .../rechazar"""
-    usuario_actualizado: str = Field(default="api_system")
+    usuario_actualizado: str = Field(default="")
     motivo: Optional[str] = None
     fecha_actualizado: Optional[str] = None
 

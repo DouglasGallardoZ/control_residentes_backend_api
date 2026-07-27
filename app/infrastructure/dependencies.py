@@ -25,10 +25,15 @@ from app.infrastructure.adapters.lectura_notificacion_impl import (
 )
 
 from app.application.services.notificacion_service import NotificacionService
+from app.application.services.bitacora_service import BitacoraService
 
 
 def get_notificacion_repositorio(db: Session = Depends(get_db)) -> NotificacionRepositorioImpl:
     return NotificacionRepositorioImpl(db)
+
+
+def get_bitacora_service(db: Session = Depends(get_db)) -> BitacoraService:
+    return BitacoraService(db)
 
 
 def get_fcm_token_repositorio() -> FcmTokenRepositorioImpl:

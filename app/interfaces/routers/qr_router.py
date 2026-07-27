@@ -10,6 +10,7 @@ from datetime import datetime
 from app.infrastructure.utils.time_utils import ahora_sin_tz, timedelta
 from app.config import get_settings
 from app.infrastructure.security.auth import obtener_usuario_con_rol
+from app.infrastructure.utils.auditoria_helpers import registrar_bitacora
 import secrets
 import string
 
@@ -131,7 +132,10 @@ def generar_qr_propio(
         db.add(qr)
         db.commit()
         db.refresh(qr)
-        
+
+        registrar_bitacora(db, usuario, "qr", qr.qr_pk, "generar_propio",
+                           f"QR propio generado, token: {token[:8]}...")
+
         return {
             "id": qr.qr_pk,
             "token": token,
@@ -292,6 +296,9 @@ def generar_qr_visita(
         db.commit()
         db.refresh(qr)
         
+        registrar_bitacora(db, usuario, "qr", qr.qr_pk, "generar_visita",
+                           f"QR visita generado, token: {token[:8]}...")
+
         # Determinar si la visita fue nueva o reutilizada
         mensaje_visita = "Visitante reutilizado" if visita_existente else "Nuevo visitante registrado"
         
@@ -377,8 +384,11 @@ def anular_qr(
 
     qr.estado = "anulado"
     qr.fecha_actualizado = datetime.now()
-    qr.usuario_actualizado = usuario.get("email", "api_system")
+    qr.usuario_actualizado = usuario.get("email", "")
     db.commit()
+
+    registrar_bitacora(db, usuario, "qr", qr_id, "anular",
+                       f"QR {qr_id} anulado")
 
     return {
         "success": True,

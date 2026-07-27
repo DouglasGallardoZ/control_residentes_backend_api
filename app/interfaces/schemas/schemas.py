@@ -1,6 +1,12 @@
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from typing import Optional, List
 from datetime import datetime, date
+
+from app.domain.validators import (
+    validar_identificacion,
+    validar_edad_minima,
+    validar_celular,
+)
 
 
 # ============ PERSONA ============
@@ -15,9 +21,34 @@ class PersonaBase(BaseModel):
     celular: Optional[str] = None
     direccion_alternativa: Optional[str] = None
 
+    @field_validator("identificacion")
+    @classmethod
+    def validar_id(cls, v, info):
+        tipo = info.data.get("tipo_identificacion", "cedula")
+        error = validar_identificacion(v, tipo)
+        if error:
+            raise ValueError(error)
+        return v
+
+    @field_validator("fecha_nacimiento")
+    @classmethod
+    def validar_fecha(cls, v):
+        error = validar_edad_minima(v)
+        if error:
+            raise ValueError(error)
+        return v
+
+    @field_validator("celular")
+    @classmethod
+    def validar_tel(cls, v):
+        error = validar_celular(v)
+        if error:
+            raise ValueError(error)
+        return v
+
 
 class PersonaCreate(PersonaBase):
-    usuario_creado: str
+    usuario_creado: Optional[str] = None
 
 
 class PersonaUpdate(BaseModel):
@@ -81,7 +112,7 @@ class ConyugeCreate(PersonaBase):
 class ResidenteCreate(PersonaBase):
     manzana: str
     villa: str
-    usuario_creado: str
+    usuario_creado: Optional[str] = None
     doc_autorizacion_pdf: str
 
 
@@ -411,7 +442,7 @@ class ViviendaCreate(BaseModel):
     estado: str = Field(
         default="activo", pattern=r"^(activo|inactivo)$"
     )
-    usuario_creado: str = Field(default="api_system")
+    usuario_creado: Optional[str] = None
 
 
 class ViviendaUpdate(BaseModel):
@@ -420,7 +451,7 @@ class ViviendaUpdate(BaseModel):
     estado: Optional[str] = Field(
         None, pattern=r"^(activo|inactivo)$"
     )
-    usuario_actualizado: str = Field(default="api_system")
+    usuario_actualizado: str = Field(default="")
     fecha_actualizado: Optional[str] = None
 
 
@@ -455,7 +486,7 @@ class ViviendaEstadoUpdate(BaseModel):
         ..., pattern=r"^(activo|inactivo)$"
     )
     motivo: Optional[str] = None
-    usuario_actualizado: str = Field(default="api_system")
+    usuario_actualizado: str = Field(default="")
     fecha_actualizado: Optional[str] = None
 
 
@@ -466,7 +497,7 @@ class ViviendaCambioPropietarioRequest(BaseModel):
         default="titular", pattern=r"^(titular|copropietario)$"
     )
     motivo: str = Field(..., min_length=1)
-    usuario_actualizado: str = Field(default="api_system")
+    usuario_actualizado: str = Field(default="")
     fecha_actualizado: Optional[str] = None
 
 

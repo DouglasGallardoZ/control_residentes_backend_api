@@ -19,8 +19,8 @@ class BitacoraService:
         entidad: str,
         entidad_id: int,
         operacion: str,
-        valor_anterior: any = None,
-        valor_nuevo: any = None,
+        valor_anterior: any = " ",
+        valor_nuevo: any = " ",
         descripcion: str = None,
     ) -> None:
         try:
@@ -28,19 +28,21 @@ class BitacoraService:
                 entidad=entidad,
                 entidad_id=str(entidad_id),
                 operacion=operacion,
-                persona_actor_fk=persona_id,
+                persona_actor_fk=persona_id if persona_id else None,
                 valor_anterior=(
                     json.dumps(valor_anterior, default=str)
-                    if valor_anterior is not None
-                    else None
+                    if valor_anterior != " "
+                    else " "
                 ),
                 valor_nuevo=(
                     json.dumps(valor_nuevo, default=str)
-                    if valor_nuevo is not None
-                    else None
+                    if valor_nuevo != " "
+                    else " "
                 ),
                 descripcion=descripcion,
             )
             self.db.add(registro)
+            self.db.commit()
         except Exception as e:
+            self.db.rollback()
             print(f"Error registrando bitacora: {e}")

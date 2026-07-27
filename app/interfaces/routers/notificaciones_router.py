@@ -8,6 +8,7 @@ from app.infrastructure.dependencies import get_notificacion_service
 from app.infrastructure.security.auth import obtener_usuario_con_rol, requerir_rol
 from app.application.services.notificacion_service import NotificacionService
 from app.application.services.firestore_sync_service import FirestoreSyncService
+from app.infrastructure.utils.auditoria_helpers import registrar_bitacora
 from app.domain.entities.notificacion_entities import SolicitudNotificacion
 from datetime import datetime
 from app.interfaces.schemas.notificaciones_schemas import (
@@ -203,6 +204,9 @@ async def enviar_notificacion(
     try:
         resultado = await servicio.enviar_notificacion(solicitud)
         db.commit()
+        registrar_bitacora(db, usuario, "notificacion",
+                           resultado.notificacion_id, "enviar",
+                           f"Notificacion a {resultado.total_destinatarios} destinatarios")
         return resultado
     except Exception as e:
         db.rollback()

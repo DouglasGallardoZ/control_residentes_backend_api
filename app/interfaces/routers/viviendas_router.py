@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime
 import math
+from app.infrastructure.utils.auditoria_helpers import registrar_bitacora
 
 from app.infrastructure.db.database import get_db
 from app.infrastructure.db.models import (
@@ -389,6 +390,10 @@ def crear_vivienda(
     db.commit()
     db.refresh(vivienda)
 
+    registrar_bitacora(db, usuario, "vivienda", vivienda.vivienda_pk, "crear",
+                           f"Vivienda Mz {vivienda.manzana}, Villa {vivienda.villa} creada")
+    
+    
     return ViviendaResponse(
         vivienda_id=vivienda.vivienda_pk,
         manzana=vivienda.manzana,
@@ -440,6 +445,9 @@ def actualizar_vivienda(
 
     db.commit()
     db.refresh(vivienda)
+
+    registrar_bitacora(db, usuario, "vivienda", vivienda_id, "actualizar",
+                       f"Vivienda Mz {vivienda.manzana}, Villa {vivienda.villa} actualizada")
 
     total_residentes = (
         db.query(ResidenteVivienda)
@@ -533,14 +541,21 @@ def cambiar_estado_vivienda(
             detail="Estado invalido. Use 'activo' o 'inactivo'",
         )
 
+    if request.motivo:
+        vivienda.motivo_eliminado = request.motivo
+
+    estado_anterior = vivienda.estado
+
     vivienda.estado = request.estado
     vivienda.fecha_actualizado = datetime.utcnow()
     vivienda.usuario_actualizado = request.usuario_actualizado
 
-    if request.motivo:
-        vivienda.motivo_eliminado = request.motivo
-
     db.commit()
+
+    registrar_bitacora(db, usuario, "vivienda", vivienda.vivienda_pk,
+                       "cambiar_estado",
+                       f"Vivienda {vivienda.manzana}-{vivienda.villa} ahora {request.estado}",
+                       valor_anterior=estado_anterior, valor_nuevo=request.estado)
 
     accion = "activada" if request.estado == "activo" else "desactivada"
     return {
@@ -554,7 +569,7 @@ def cambiar_estado_vivienda(
 class ViviendaMasivaCreate(BaseModel):
     manzana: str = Field(..., min_length=1, max_length=10)
     cantidad: int = Field(..., ge=1, le=50)
-    usuario_creado: str = Field(default="api_system")
+    usuario_creado: str = Field(default="")
     fecha_creado: Optional[str] = None
 
 
@@ -603,6 +618,9 @@ def crear_viviendas_masivo(
         db.add_all(nuevas)
         db.commit()
         creadas = len(nuevas)
+
+    registrar_bitacora(db, usuario, "vivienda", 0, "crear_masivo",
+                       f"Manzana {mz}: {creadas} creadas, {len(omitidas)} omitidas")
 
     return {
         "creadas": creadas,
@@ -702,10 +720,51 @@ def cambio_propietario(
         fecha_creado=fecha,
     )
     db.add(nuevo)
+
+    residente_reasociado = False
+    if propietario_anterior_id:
+        ...
+        residente_anterior = db.query(ResidenteVivienda).filter(
+            ResidenteVivienda.vivienda_reside_fk == request.vivienda_id,
+            ResidenteVivienda.persona_residente_fk == propietario_anterior_id,
+            ResidenteVivienda.estado == "activo",
+            ResidenteVivienda.eliminado == False,
+        ).first()
+        if residente_anterior:
+            residente_anterior.estado = "inactivo"
+            residente_anterior.fecha_actualizado = datetime.utcnow()
+            residente_existente = db.query(ResidenteVivienda).filter(
+                ResidenteVivienda.vivienda_reside_fk == request.vivienda_id,
+                ResidenteVivienda.persona_residente_fk == request.nuevo_propietario_id,
+                ResidenteVivienda.eliminado == False,
+            ).first()
+            if residente_existente:
+                residente_existente.estado = "activo"
+                residente_existente.fecha_actualizado = datetime.utcnow()
+            else:
+                nuevo_residente = ResidenteVivienda(
+                    vivienda_reside_fk=request.vivienda_id,
+                    persona_residente_fk=request.nuevo_propietario_id,
+                    estado="activo",
+                    usuario_creado=request.usuario_actualizado,
+                )
+                db.add(nuevo_residente)
+            residente_reasociado = True
+
+    registrar_bitacora(db, usuario, "propietario_vivienda", request.vivienda_id,
+                       "cambiar_propietario",
+                       f"Cambio de propietario. Anterior: {propietario_anterior_id or 'ninguno'}. Nuevo: {request.nuevo_propietario_id}",
+                       valor_anterior=str(propietario_anterior_id or ''), valor_nuevo=str(request.nuevo_propietario_id))
+
     db.commit()
 
     return ViviendaCambioPropietarioResponse(
-        mensaje="Propietario asignado correctamente",
+        mensaje=(
+            "Propietario asignado correctamente. "
+            "Nuevo propietario asignado como residente de la vivienda."
+            if residente_reasociado
+            else "Propietario asignado correctamente"
+        ),
         vivienda_id=request.vivienda_id,
         propietario_anterior_id=propietario_anterior_id,
         nuevo_propietario_id=request.nuevo_propietario_id,

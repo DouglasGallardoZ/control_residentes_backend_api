@@ -17,7 +17,7 @@ class CuentaFirebaseCreate(BaseModel):
     persona_id: int
     firebase_uid: str
     username: str
-    usuario_creado: str = "api_user"
+    usuario_creado: str = ""
 
 
 class BloquearDesbloquearRequest(BaseModel):

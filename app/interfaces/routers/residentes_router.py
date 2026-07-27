@@ -7,6 +7,7 @@ from app.interfaces.schemas.schemas import (
 from app.infrastructure.db.models import Persona, ResidenteVivienda, Vivienda
 from datetime import datetime
 from app.infrastructure.utils.time_utils import ahora_sin_tz
+from app.infrastructure.utils.auditoria_helpers import registrar_bitacora
 from app.infrastructure.security.auth import requerir_rol
 
 router = APIRouter(prefix="/api/v1/residentes", tags=["Residentes"])
@@ -88,7 +89,11 @@ def registrar_residente(
         
         db.add(residente)
         db.commit()
-        
+
+        registrar_bitacora(db, usuario, "residente_vivienda",
+                           residente.residente_vivienda_pk, "crear",
+                           f"Residente {persona.nombres} {persona.apellidos} creado en Mz {vivienda.manzana}")
+
         return {
             "id": residente.residente_vivienda_pk,
             "persona_id": persona.persona_pk,
@@ -138,14 +143,32 @@ def desactivar_residente(
         residente.motivo = request.motivo
         residente.fecha_actualizado = ahora_sin_tz()
         residente.usuario_actualizado = request.usuario_actualizado
-        
-        # TODO: Desactivar automáticamente miembros de familia asociados
-        
+
+        miembros_desactivados = 0
+        from app.infrastructure.db.models import MiembroVivienda
+        miembros = db.query(MiembroVivienda).filter(
+            MiembroVivienda.vivienda_familia_fk == residente.vivienda_reside_fk,
+            MiembroVivienda.persona_residente_fk == residente.persona_residente_fk,
+            MiembroVivienda.estado == "activo",
+            MiembroVivienda.eliminado == False,
+        ).all()
+        for miembro in miembros:
+            miembro.estado = "inactivo"
+            miembro.fecha_actualizado = ahora_sin_tz()
+            miembro.usuario_actualizado = request.usuario_actualizado
+            miembros_desactivados += 1
+
         db.commit()
-        
+
+        registrar_bitacora(db, usuario, "residente_vivienda", residente_id,
+                           "desactivar",
+                           f"Residente {residente_id} desactivado. Miembros: {miembros_desactivados}",
+                           valor_anterior="activo", valor_nuevo="inactivo")
+
         return {
-            "mensaje": "Residente desactivado correctamente",
-            "residente_id": residente_id
+            "mensaje": f"Residente desactivado correctamente. Se desactivaron {miembros_desactivados} miembros de familia.",
+            "residente_id": residente_id,
+            "miembros_desactivados": miembros_desactivados,
         }
     
     except HTTPException:
@@ -191,9 +214,14 @@ def reactivar_residente(
         residente.fecha_hasta = None
         residente.fecha_actualizado = ahora_sin_tz()
         residente.usuario_actualizado = request.usuario_actualizado
-        
+
         db.commit()
-        
+
+        registrar_bitacora(db, usuario, "residente_vivienda", residente_id,
+                           "reactivar",
+                           f"Residente {residente_id} reactivado. Motivo: {request.motivo}",
+                           valor_anterior="inactivo", valor_nuevo="activo")
+
         return {
             "mensaje": "Residente reactivado correctamente",
             "residente_id": residente_id
@@ -252,7 +280,11 @@ def agregar_foto_residente(
         db.add(foto)
         db.commit()
         db.refresh(foto)
-        
+
+        registrar_bitacora(db, usuario, "persona_foto",
+                           foto.foto_pk, "agregar_foto",
+                           f"Foto agregada para persona {persona_id}")
+
         return {
             "success": True,
             "foto_id": foto.foto_pk,

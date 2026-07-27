@@ -573,4 +573,3 @@ class Bitacora(Base):
     valor_anterior = Column(JSONB)
     valor_nuevo = Column(JSONB)
     descripcion = Column(Text)
-    fecha_creado = Column(DateTime, default=lambda: ahora_sin_tz())

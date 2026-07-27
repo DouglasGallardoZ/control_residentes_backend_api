@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.infrastructure.db import get_db
 from app.infrastructure.db.models import Acceso, Vivienda, Persona, Visita
@@ -174,3 +174,44 @@ def obtener_estadisticas_admin(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+
+@router.get("/admin/historial", response_model=dict)
+def obtener_historial_accesos(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    fecha_inicio: Optional[date] = None,
+    fecha_fin: Optional[date] = None,
+    tipo: Optional[str] = None,
+    resultado: Optional[str] = None,
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
+):
+    """Lista historial de accesos con paginacion y filtros."""
+    query = db.query(Acceso).filter(Acceso.eliminado == False)
+    if fecha_inicio:
+        query = query.filter(Acceso.fecha_creado >= fecha_inicio)
+    if fecha_fin:
+        query = query.filter(Acceso.fecha_creado <= fecha_fin)
+    if tipo:
+        query = query.filter(Acceso.tipo == tipo)
+    if resultado:
+        query = query.filter(Acceso.resultado == resultado)
+    total = query.count()
+    accesos = query.order_by(Acceso.fecha_creado.desc()).offset(
+        (page - 1) * page_size
+    ).limit(page_size).all()
+    data = []
+    for a in accesos:
+        detalle = AccesosService.obtener_detalles_acceso(db, a)
+        data.append({
+            "acceso_pk": a.acceso_pk,
+            "tipo": a.tipo,
+            "resultado": a.resultado,
+            "fecha_creado": a.fecha_creado.isoformat() if a.fecha_creado else None,
+            "vivienda_id": a.vivienda_visita_fk,
+            "guardia_nombre": detalle.get("guardia_nombre"),
+            "residente_autoriza_nombre": detalle.get("residente_autoriza_nombre"),
+            "visita_nombres": detalle.get("visita_nombres"),
+        })
+    return {"data": data, "total": total, "page": page, "page_size": page_size}

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.infrastructure.db import get_db
 from app.interfaces.schemas.schemas import PersonaCreate
@@ -19,11 +19,56 @@ from app.infrastructure.security.auth import obtener_usuario_con_rol, requerir_r
 from app.application.services.notificacion_service import NotificacionService
 from datetime import datetime, date
 from app.infrastructure.utils.time_utils import ahora_sin_tz
+from app.infrastructure.utils.auditoria_helpers import registrar_bitacora
 from pydantic import BaseModel, Field
 from typing import Optional
 import json
 
 router = APIRouter(prefix="/api/v1/miembros", tags=["Miembros de Familia"])
+
+
+@router.get("/familia", response_model=dict)
+def listar_miembros_familia(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: str = Query(None),
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
+):
+    """Lista miembros de familia con paginacion y busqueda."""
+    query = (
+        db.query(MiembroVivienda, Persona, Vivienda)
+        .join(Persona, MiembroVivienda.persona_miembro_fk == Persona.persona_pk)
+        .join(Vivienda, MiembroVivienda.vivienda_familia_fk == Vivienda.vivienda_pk)
+        .filter(MiembroVivienda.eliminado == False, Persona.eliminado == False)
+    )
+    if search:
+        term = f"%{search}%"
+        query = query.filter(
+            (Persona.nombres.ilike(term)) | (Persona.identificacion.ilike(term))
+        )
+    total = query.count()
+    offset = (page - 1) * page_size
+    items = query.order_by(Persona.apellidos.asc()).offset(offset).limit(page_size).all()
+
+    data = []
+    for m, p, v in items:
+        residente = db.query(Persona).filter(
+            Persona.persona_pk == m.persona_residente_fk
+        ).first()
+        data.append({
+            "persona_id": p.persona_pk,
+            "nombres": p.nombres,
+            "apellidos": p.apellidos,
+            "identificacion": p.identificacion,
+            "parentesco": m.parentesco,
+            "estado": m.estado,
+            "manzana": v.manzana,
+            "villa": v.villa,
+            "residente_nombre": f"{residente.nombres} {residente.apellidos}" if residente else "N/A",
+        })
+
+    return {"data": data, "total": total, "page": page, "page_size": page_size}
 
 
 class AgregarMiembroFamiliaRequest(BaseModel):
@@ -161,7 +206,11 @@ def agregar_miembro_familia(
         db.flush()
         db.commit()
         db.refresh(miembro)
-        
+
+        registrar_bitacora(db, usuario, "miembro_vivienda",
+                           miembro.miembro_vivienda_pk, "crear",
+                           f"Miembro {persona.nombres} {persona.apellidos} agregado")
+
         return {
             "success": True,
             "miembro_id": miembro.miembro_vivienda_pk,
@@ -201,7 +250,6 @@ def obtener_miembros_familia(
         miembros = db.query(MiembroVivienda).filter(
             MiembroVivienda.vivienda_familia_fk == vivienda_id,
             MiembroVivienda.eliminado == False,
-            MiembroVivienda.estado == "activo"
         ).all()
         
         miembros_data = []
@@ -219,7 +267,8 @@ def obtener_miembros_familia(
                 "identificacion": persona.identificacion,
                 "parentesco": miembro.parentesco,
                 "correo": persona.correo,
-                "celular": persona.celular
+                "celular": persona.celular,
+                "estado" : miembro.estado
             })
         
         return {
@@ -261,9 +310,13 @@ def desactivar_miembro(
         miembro.estado = "inactivo"
         miembro.fecha_actualizado = ahora_sin_tz()
         miembro.usuario_actualizado = request.usuario_actualizado
-        
+
         db.commit()
-        
+
+        registrar_bitacora(db, usuario, "miembro_vivienda", miembro_id,
+                           "desactivar", f"Miembro {miembro_id} desactivado",
+                           valor_anterior="activo", valor_nuevo="inactivo")
+
         return {
             "success": True,
             "mensaje": "Miembro desactivado correctamente"
@@ -303,9 +356,13 @@ def reactivar_miembro(
         miembro.estado = "activo"
         miembro.fecha_actualizado = ahora_sin_tz()
         miembro.usuario_actualizado = request.usuario_actualizado
-        
+
         db.commit()
-        
+
+        registrar_bitacora(db, usuario, "miembro_vivienda", miembro_id,
+                           "reactivar", f"Miembro {miembro_id} reactivado",
+                           valor_anterior="inactivo", valor_nuevo="activo")
+
         return {
             "success": True,
             "mensaje": "Miembro reactivado correctamente"
@@ -346,9 +403,12 @@ def eliminar_miembro(
         miembro.motivo_eliminado = motivo_eliminado
         miembro.fecha_actualizado = ahora_sin_tz()
         miembro.usuario_actualizado = usuario_actualizado
-        
+
         db.commit()
-        
+
+        registrar_bitacora(db, usuario, "miembro_vivienda", miembro_id,
+                           "eliminar", f"Miembro {miembro_id} eliminado")
+
         return {
             "success": True,
             "mensaje": "Miembro eliminado correctamente"
@@ -597,6 +657,10 @@ async def solicitar_registro_miembro(
 
         db.commit()
 
+        registrar_bitacora(db, usuario, "miembro_vivienda", 0,
+                           "solicitar",
+                           f"Solicitud de miembro: {request.nombres} {request.apellidos}")
+
         return {
             "success": True,
             "notificacion_id": resultado.notificacion_id,
@@ -816,6 +880,10 @@ async def aprobar_solicitud_miembro(
 
         db.commit()
 
+        registrar_bitacora(db, usuario, "miembro_vivienda",
+                           nuevo_miembro.miembro_vivienda_pk, "aprobar",
+                           f"Solicitud aprobada: {nueva_persona.nombres} {nueva_persona.apellidos}")
+
         return {
             "success": True,
             "persona_id": nueva_persona.persona_pk,
@@ -909,6 +977,10 @@ async def rechazar_solicitud_miembro(
                 print(f"Error enviando push de rechazo: {e}")
 
         db.commit()
+
+        registrar_bitacora(db, usuario, "miembro_vivienda",
+                           notificacion_id, "rechazar",
+                           f"Solicitud rechazada: notificacion {notificacion_id}")
 
         return {"success": True, "mensaje": "Solicitud rechazada."}
 
@@ -1041,7 +1113,8 @@ def bloquear_miembro_por_residente(
     miembro = (
         db.query(MiembroVivienda)
         .filter(
-            MiembroVivienda.miembro_vivienda_pk == miembro_id,
+            MiembroVivienda.persona_miembro_fk == miembro_id,
+            MiembroVivienda.estado == 'activo',
             MiembroVivienda.eliminado == False,
         )
         .first()
@@ -1067,13 +1140,13 @@ def bloquear_miembro_por_residente(
 
     miembro.estado = "inactivo"
     miembro.fecha_actualizado = ahora_sin_tz()
-    miembro.usuario_actualizado = usuario.get("email", "api_system")
+    miembro.usuario_actualizado = usuario.get("email", "")
     db.commit()
 
-    return {
-        "success": True,
-        "mensaje": "Miembro bloqueado correctamente",
-    }
+    registrar_bitacora(db, usuario, "miembro_vivienda", miembro_id,
+                       "bloquear", f"Miembro {miembro_id} bloqueado por residente",
+                       valor_anterior="activo", valor_nuevo="inactivo")
+    return {"success": True, "mensaje": "Miembro bloqueado correctamente"}
 
 
 @router.post(
@@ -1094,8 +1167,9 @@ def desbloquear_miembro_por_residente(
     miembro = (
         db.query(MiembroVivienda)
         .filter(
-            MiembroVivienda.miembro_vivienda_pk == miembro_id,
+            MiembroVivienda.persona_miembro_fk == miembro_id,
             MiembroVivienda.eliminado == False,
+            MiembroVivienda.estado == 'inactivo',
         )
         .first()
     )
@@ -1120,10 +1194,129 @@ def desbloquear_miembro_por_residente(
 
     miembro.estado = "activo"
     miembro.fecha_actualizado = ahora_sin_tz()
-    miembro.usuario_actualizado = usuario.get("email", "api_system")
+    miembro.usuario_actualizado = usuario.get("email", "")
     db.commit()
 
+    registrar_bitacora(db, usuario, "miembro_vivienda", miembro_id,
+                       "desbloquear", f"Miembro {miembro_id} desbloqueado por residente",
+                       valor_anterior="inactivo", valor_nuevo="activo")
+    return {"success": True, "mensaje": "Miembro desbloqueado correctamente"}
+
+
+# ═══════════════════════════════════════════════════════════════
+# ENDPOINTS DE VISITANTES POR USUARIO
+# ═══════════════════════════════════════════════════════════════
+
+
+@router.get("/visitantes", response_model=dict)
+def listar_visitantes_usuario(
+    usuario_id: int = Query(...),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(obtener_usuario_con_rol),
+):
+    """Lista visitantes registrados para un usuario."""
+    from app.infrastructure.db.models import Visita as VisitaModel
+    vivienda_id = None
+    residente = db.query(ResidenteVivienda).filter(
+        ResidenteVivienda.persona_residente_fk == usuario_id,
+        ResidenteVivienda.estado == "activo",
+        ResidenteVivienda.eliminado == False,
+    ).first()
+    if residente:
+        vivienda_id = residente.vivienda_reside_fk
+    if not vivienda_id:
+        return {"data": [], "total": 0, "page": page, "page_size": page_size}
+
+    query = db.query(VisitaModel).filter(
+        VisitaModel.vivienda_visita_fk == vivienda_id,
+        VisitaModel.eliminado == False,
+    )
+    total = query.count()
+    visitas = query.order_by(VisitaModel.fecha_creado.desc()).offset(
+        (page - 1) * page_size
+    ).limit(page_size).all()
+
+    data = [
+        {
+            "visita_id": v.visita_pk,
+            "identificacion": v.identificacion,
+            "nombres": v.nombres,
+            "apellidos": v.apellidos,
+            "fecha_creado": v.fecha_creado.isoformat() if v.fecha_creado else None,
+        }
+        for v in visitas
+    ]
+    return {"data": data, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/visitantes/{visitante_id}", response_model=dict)
+def obtener_visitante_usuario(
+    visitante_id: int,
+    usuario_id: int = Query(...),
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(obtener_usuario_con_rol),
+):
+    """Obtiene un visitante especifico."""
+    from app.infrastructure.db.models import Visita as VisitaModel
+    v = db.query(VisitaModel).filter(
+        VisitaModel.visita_pk == visitante_id,
+        VisitaModel.eliminado == False,
+    ).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="Visitante no encontrado")
     return {
-        "success": True,
-        "mensaje": "Miembro desbloqueado correctamente",
+        "visita_id": v.visita_pk,
+        "identificacion": v.identificacion,
+        "nombres": v.nombres,
+        "apellidos": v.apellidos,
+        "fecha_creado": v.fecha_creado.isoformat() if v.fecha_creado else None,
     }
+
+
+@router.post("/visitantes", response_model=dict)
+def crear_visitante_usuario(
+    request: dict,
+    usuario_id: int = Query(...),
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(obtener_usuario_con_rol),
+):
+    """Crea o actualiza un visitante."""
+    from app.infrastructure.db.models import Visita as VisitaModel
+    vivienda_id = None
+    residente = db.query(ResidenteVivienda).filter(
+        ResidenteVivienda.persona_residente_fk == usuario_id,
+        ResidenteVivienda.estado == "activo",
+        ResidenteVivienda.eliminado == False,
+    ).first()
+    if residente:
+        vivienda_id = residente.vivienda_reside_fk
+    if not vivienda_id:
+        raise HTTPException(status_code=404, detail="Vivienda no encontrada para este usuario")
+
+    if request.get("id"):
+        visita = db.query(VisitaModel).filter(
+            VisitaModel.visita_pk == request["id"],
+            VisitaModel.vivienda_visita_fk == vivienda_id,
+        ).first()
+        if visita:
+            visita.nombres = request.get("nombre", visita.nombres)
+            visita.identificacion = request.get("telefono", visita.identificacion)
+            db.commit()
+            registrar_bitacora(db, usuario, "visita", visita.visita_pk,
+                               "actualizar", "Visitante actualizado")
+            return {"success": True, "visita_id": visita.visita_pk, "mensaje": "Visitante actualizado"}
+
+    visita = VisitaModel(
+        vivienda_visita_fk=vivienda_id,
+        identificacion=request.get("telefono", request.get("identificacion", "")),
+        nombres=request.get("nombre", ""),
+        usuario_creado=usuario.get("email", ""),
+    )
+    db.add(visita)
+    db.commit()
+    db.refresh(visita)
+    registrar_bitacora(db, usuario, "visita", visita.visita_pk,
+                       "crear", "Visitante creado")
+    return {"success": True, "visita_id": visita.visita_pk, "mensaje": "Visitante creado"}
