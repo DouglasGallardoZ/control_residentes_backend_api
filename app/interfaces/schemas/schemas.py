@@ -48,14 +48,13 @@ class PersonaBase(BaseModel):
 
 
 class PersonaCreate(PersonaBase):
-    usuario_creado: Optional[str] = None
+    pass
 
 
 class PersonaUpdate(BaseModel):
     correo: Optional[EmailStr] = None
     celular: Optional[str] = None
     direccion_alternativa: Optional[str] = None
-    usuario_actualizado: str
 
 
 class PersonaResponse(PersonaBase):
@@ -76,7 +75,7 @@ class ViviendaBase(BaseModel):
 
 
 class ViviendaCreate(ViviendaBase):
-    usuario_creado: str
+    pass
 
 
 class ViviendaResponse(ViviendaBase):
@@ -92,7 +91,6 @@ class ViviendaResponse(ViviendaBase):
 class PropietarioCreate(PersonaBase):
     manzana: str
     villa: str
-    usuario_creado: str
     documento_propiedad_url: str
     fotos_rostro: List[str]  # URLs de fotos
 
@@ -104,7 +102,6 @@ class PropietarioResponse(PersonaResponse):
 
 class ConyugeCreate(PersonaBase):
     propietario_id: int
-    usuario_creado: str
     foto_rostro: str
 
 
@@ -112,12 +109,11 @@ class ConyugeCreate(PersonaBase):
 class ResidenteCreate(PersonaBase):
     manzana: str
     villa: str
-    usuario_creado: Optional[str] = None
     doc_autorizacion_pdf: str
 
 
 class ResidenteUpdate(BaseModel):
-    usuario_actualizado: str
+    pass
 
 
 class ResidenteResponse(PersonaResponse):
@@ -128,26 +124,22 @@ class ResidenteResponse(PersonaResponse):
 
 class ResidenteDesactivar(BaseModel):
     motivo: str
-    usuario_actualizado: str
     fecha_actualizado: Optional[str] = None
 
 
 class EliminarResidenteRequest(BaseModel):
     """Schema para eliminar residente (body del DELETE)"""
     motivo: str = "Residente eliminado"
-    usuario_actualizado: Optional[str] = None
 
 
 class AgregarFotoRequest(BaseModel):
     """Schema para agregar foto a residente"""
     ruta_imagen: str
     formato: str
-    usuario_creado: str
 
 
 class ResidenteReactivar(BaseModel):
     motivo: str
-    usuario_actualizado: str
     fecha_actualizado: Optional[str] = None
 
 
@@ -157,7 +149,6 @@ class MiembroFamiliaCreate(PersonaBase):
     residente_id: int
     parentesco: str
     parentesco_otro_desc: Optional[str] = None
-    usuario_creado: str
     foto_rostro: str
 
 
@@ -174,7 +165,6 @@ class CuentaCreate(BaseModel):
     persona_id: int
     username: str
     password: str
-    usuario_creado: str
 
 
 class CuentaResponse(BaseModel):
@@ -191,17 +181,14 @@ class CuentaResponse(BaseModel):
 
 class CuentaBloquear(BaseModel):
     motivo: str
-    usuario_actualizado: str
 
 
 class CuentaDesbloquear(BaseModel):
     motivo: str
-    usuario_actualizado: str
 
 
 class CuentaEliminar(BaseModel):
     motivo: str
-    usuario_actualizado: str
 
 
 # ============ QR ============
@@ -209,7 +196,6 @@ class QRGenerarPropio(BaseModel):
     duracion_horas: int = Field(..., gt=0)
     fecha_acceso: date = None  # Opcional, si no viene usa fecha actual
     hora_inicio: str = None  # HH:MM (opcional, si no viene usa hora actual)
-    usuario_creado: str
 
 
 class QRGenerarVisita(BaseModel):
@@ -220,7 +206,6 @@ class QRGenerarVisita(BaseModel):
     duracion_horas: int = Field(..., gt=0)
     fecha_acceso: date = None  # Opcional, si no viene usa fecha actual
     hora_inicio: str = None  # HH:MM (opcional, si no viene usa hora actual)
-    usuario_creado: str
 
 
 class QRResponse(BaseModel):
@@ -448,7 +433,6 @@ class ViviendaCreate(BaseModel):
     estado: str = Field(
         default="activo", pattern=r"^(activo|inactivo)$"
     )
-    usuario_creado: Optional[str] = None
 
 
 class ViviendaUpdate(BaseModel):
@@ -457,7 +441,6 @@ class ViviendaUpdate(BaseModel):
     estado: Optional[str] = Field(
         None, pattern=r"^(activo|inactivo)$"
     )
-    usuario_actualizado: str = Field(default="")
     fecha_actualizado: Optional[str] = None
 
 
@@ -492,7 +475,6 @@ class ViviendaEstadoUpdate(BaseModel):
         ..., pattern=r"^(activo|inactivo)$"
     )
     motivo: Optional[str] = None
-    usuario_actualizado: str = Field(default="")
     fecha_actualizado: Optional[str] = None
 
 
@@ -503,7 +485,6 @@ class ViviendaCambioPropietarioRequest(BaseModel):
         default="titular", pattern=r"^(titular|copropietario)$"
     )
     motivo: str = Field(..., min_length=1)
-    usuario_actualizado: str = Field(default="")
     fecha_actualizado: Optional[str] = None
 
 

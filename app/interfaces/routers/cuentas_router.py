@@ -17,12 +17,10 @@ class CuentaFirebaseCreate(BaseModel):
     persona_id: int
     firebase_uid: str
     username: str
-    usuario_creado: str = ""
 
 
 class BloquearDesbloquearRequest(BaseModel):
     """Schema para bloquear/desbloquear cuenta"""
-    usuario_actualizado: Optional[str] = None
     motivo: str = "Cuenta modificada"
     cascada: bool = True
     fecha_actualizado: Optional[str] = None
@@ -31,7 +29,6 @@ class BloquearDesbloquearRequest(BaseModel):
 class EliminarCuentaRequest(BaseModel):
     """Schema para eliminar cuenta (body del DELETE)"""
     motivo: str = "Cuenta eliminada"
-    usuario_actualizado: Optional[str] = None
 
 
 @router.post("/residente/firebase", response_model=dict)
@@ -96,7 +93,7 @@ def crear_cuenta_residente_firebase(
             username=request.username,
             firebase_uid=request.firebase_uid,
             estado="activo",
-            usuario_creado=request.usuario_creado
+            usuario_creado="user_system"
         )
         
         db.add(cuenta)
@@ -106,7 +103,7 @@ def crear_cuenta_residente_firebase(
         evento = EventoCuenta(
             cuenta_afectada_fk=cuenta.cuenta_pk,
             tipo_evento="cuenta_creada",
-            usuario_creado=request.usuario_creado
+            usuario_creado="user_system"
         )
         db.add(evento)
         
@@ -194,7 +191,7 @@ def crear_cuenta_miembro_familia_firebase(
             username=request.username,
             firebase_uid=request.firebase_uid,
             estado="activo",
-            usuario_creado=request.usuario_creado
+            usuario_creado="user_system"
         )
         
         db.add(cuenta)
@@ -204,7 +201,7 @@ def crear_cuenta_miembro_familia_firebase(
         evento = EventoCuenta(
             cuenta_afectada_fk=cuenta.cuenta_pk,
             tipo_evento="cuenta_creada",
-            usuario_creado=request.usuario_creado
+            usuario_creado="user_system"
         )
         db.add(evento)
         
@@ -295,7 +292,7 @@ def bloquear_cuenta(
                         cuentas_a_bloquear.append(cuenta_miembro)
         
         # Bloquear todas las cuentas
-        email = usuario.get("email", "admin@gmail.com")
+        email = usuario.get("email", "") or "user_system"
         for cuenta in cuentas_a_bloquear:
             cuenta.estado = "inactivo"
             cuenta.fecha_actualizado = ahora_sin_tz()
@@ -397,7 +394,7 @@ def desbloquear_cuenta(
                         cuentas_a_desbloquear.append(cuenta_miembro)
         
         # Desbloquear todas las cuentas
-        email = usuario.get("email", "admin@gmail.com")
+        email = usuario.get("email", "") or "user_system"
         for cuenta in cuentas_a_desbloquear:
             cuenta.estado = "activo"
             cuenta.fecha_actualizado = ahora_sin_tz()
@@ -458,7 +455,7 @@ def eliminar_cuenta(
                 detail="La cuenta ya ha sido eliminada"
             )
         
-        email = usuario.get("email", "admin@gmail.com")
+        email = usuario.get("email", "") or "user_system"
         
         # Marcar como eliminado (soft delete)
         cuenta.eliminado = True

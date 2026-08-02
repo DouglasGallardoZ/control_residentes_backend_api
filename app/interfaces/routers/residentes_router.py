@@ -24,6 +24,7 @@ def registrar_residente(
     RF-R01
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         # Validar vivienda por manzana y villa
         vivienda = db.query(Vivienda).filter(
             Vivienda.manzana == request.manzana,
@@ -72,7 +73,7 @@ def registrar_residente(
             celular=request.celular,
             direccion_alternativa=request.direccion_alternativa,
             estado="activo",
-            usuario_creado=request.usuario_creado
+            usuario_creado=email
         )
         
         db.add(persona)
@@ -84,7 +85,7 @@ def registrar_residente(
             persona_residente_fk=persona.persona_pk,
             doc_autorizacion_pdf=request.doc_autorizacion_pdf,
             estado="activo",
-            usuario_creado=request.usuario_creado
+            usuario_creado=email
         )
         
         db.add(residente)
@@ -122,6 +123,7 @@ def desactivar_residente(
     RF-R03
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         residente = db.query(ResidenteVivienda).filter(
             ResidenteVivienda.persona_residente_fk == residente_id
         ).first()
@@ -142,7 +144,7 @@ def desactivar_residente(
         residente.estado = "inactivo"
         residente.motivo = request.motivo
         residente.fecha_actualizado = ahora_sin_tz()
-        residente.usuario_actualizado = request.usuario_actualizado
+        residente.usuario_actualizado = email
 
         miembros_desactivados = 0
         from app.infrastructure.db.models import MiembroVivienda
@@ -155,7 +157,7 @@ def desactivar_residente(
         for miembro in miembros:
             miembro.estado = "inactivo"
             miembro.fecha_actualizado = ahora_sin_tz()
-            miembro.usuario_actualizado = request.usuario_actualizado
+            miembro.usuario_actualizado = email
             miembros_desactivados += 1
 
         db.commit()
@@ -203,7 +205,7 @@ def eliminar_residente(
                 detail="Residente no encontrado"
             )
 
-        email = usuario.get("email", "admin@gmail.com")
+        email = usuario.get("email", "") or "user_system"
         residente.eliminado = True
         residente.estado = "inactivo"
         residente.motivo_eliminado = request.motivo
@@ -243,6 +245,7 @@ def reactivar_residente(
     RF-R05
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         residente = db.query(ResidenteVivienda).filter(
             ResidenteVivienda.persona_residente_fk == residente_id
         ).first()
@@ -263,7 +266,7 @@ def reactivar_residente(
         residente.estado = "activo"
         residente.fecha_hasta = None
         residente.fecha_actualizado = ahora_sin_tz()
-        residente.usuario_actualizado = request.usuario_actualizado
+        residente.usuario_actualizado = email
 
         db.commit()
 
@@ -299,6 +302,7 @@ def agregar_foto_residente(
     Tabla: persona_foto
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         from app.infrastructure.db.models import PersonaFoto
         
         # Validar persona existe y es residente
@@ -324,7 +328,7 @@ def agregar_foto_residente(
             persona_titular_fk=persona_id,
             ruta_imagen=request.ruta_imagen,
             formato=request.formato,
-            usuario_creado=request.usuario_creado
+            usuario_creado=email
         )
         
         db.add(foto)

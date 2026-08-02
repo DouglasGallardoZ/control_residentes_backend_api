@@ -358,6 +358,7 @@ def crear_vivienda(
     usuario: dict = Depends(requerir_rol("admin")),
 ):
     """Crea una nueva vivienda."""
+    email = usuario.get("email", "") or "user_system"
 
     existente = (
         db.query(Vivienda)
@@ -382,7 +383,7 @@ def crear_vivienda(
         manzana=request.manzana.strip().upper(),
         villa=request.villa.strip().upper(),
         estado=request.estado,
-        usuario_creado=request.usuario_creado,
+        usuario_creado=email,
         fecha_creado=datetime.utcnow(),
     )
 
@@ -417,6 +418,7 @@ def actualizar_vivienda(
     usuario: dict = Depends(requerir_rol("admin")),
 ):
     """Actualiza los datos de una vivienda."""
+    email = usuario.get("email", "") or "user_system"
 
     vivienda = (
         db.query(Vivienda)
@@ -441,7 +443,7 @@ def actualizar_vivienda(
         vivienda.estado = request.estado
 
     vivienda.fecha_actualizado = datetime.utcnow()
-    vivienda.usuario_actualizado = request.usuario_actualizado
+    vivienda.usuario_actualizado = email
 
     db.commit()
     db.refresh(vivienda)
@@ -519,6 +521,7 @@ def cambiar_estado_vivienda(
     usuario: dict = Depends(requerir_rol("admin")),
 ):
     """Activa o desactiva una vivienda."""
+    email = usuario.get("email", "") or "user_system"
 
     vivienda = (
         db.query(Vivienda)
@@ -548,7 +551,7 @@ def cambiar_estado_vivienda(
 
     vivienda.estado = request.estado
     vivienda.fecha_actualizado = datetime.utcnow()
-    vivienda.usuario_actualizado = request.usuario_actualizado
+    vivienda.usuario_actualizado = email
 
     db.commit()
 
@@ -569,7 +572,6 @@ def cambiar_estado_vivienda(
 class ViviendaMasivaCreate(BaseModel):
     manzana: str = Field(..., min_length=1, max_length=10)
     cantidad: int = Field(..., ge=1, le=50)
-    usuario_creado: str = Field(default="")
     fecha_creado: Optional[str] = None
 
 
@@ -580,6 +582,7 @@ def crear_viviendas_masivo(
     usuario: dict = Depends(requerir_rol("admin")),
 ):
     """Crea viviendas en lote para una manzana."""
+    email = usuario.get("email", "") or "user_system"
     mz = request.manzana.strip().upper()
     creadas = 0
     omitidas = []
@@ -609,7 +612,7 @@ def crear_viviendas_masivo(
             manzana=mz,
             villa=villa,
             estado="activo",
-            usuario_creado=request.usuario_creado,
+            usuario_creado=email,
             fecha_creado=fecha,
         )
         nuevas.append(v)
@@ -674,7 +677,7 @@ def cambio_propietario(
         )
 
     propietario_anterior_id = None
-    email = usuario.get("email", "admin@gmail.com")
+    email = usuario.get("email", "") or "user_system"
 
     # 1. PRIMERO: desactivar propietario actual + conyuge
     #    (libera la constraint de un solo propietario activo por vivienda)

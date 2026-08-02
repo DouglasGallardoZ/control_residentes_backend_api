@@ -30,7 +30,6 @@ router = APIRouter(prefix="/api/v1/miembros", tags=["Miembros de Familia"])
 class EliminarMiembroRequest(BaseModel):
     """Schema para eliminar miembro (body del DELETE)"""
     motivo: str = "Eliminación de miembro"
-    usuario_actualizado: Optional[str] = None
 
 
 @router.get("/familia", response_model=dict)
@@ -100,20 +99,15 @@ class AgregarMiembroFamiliaRequest(BaseModel):
     # Parentesco
     parentesco: str
     parentesco_otro_desc: str = None
-    
-    # Auditoría
-    usuario_creado: str = "api_user"
 
 
 class DesactivarMiembroRequest(BaseModel):
     """Schema para desactivar miembro de familia"""
-    usuario_actualizado: str = "api_user"
     fecha_actualizado: Optional[str] = None
 
 
 class ReactivarMiembroRequest(BaseModel):
     """Schema para reactivar miembro de familia"""
-    usuario_actualizado: str = "api_user"
     fecha_actualizado: Optional[str] = None
 
 
@@ -128,6 +122,7 @@ def agregar_miembro_familia(
     RF-R02: Agregar miembro de familia
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         # Validar parentescos válidos
         parentescos_validos = ['padre', 'madre', 'esposo', 'esposa', 'hijo', 'hija', 'otro']
         if request.parentesco.lower() not in parentescos_validos:
@@ -192,7 +187,7 @@ def agregar_miembro_familia(
             correo=request.correo,
             celular=request.celular,
             direccion_alternativa=request.direccion_alternativa,
-            usuario_creado=request.usuario_creado
+            usuario_creado=email
         )
         
         db.add(persona)
@@ -205,7 +200,7 @@ def agregar_miembro_familia(
             persona_miembro_fk=persona.persona_pk,
             parentesco=request.parentesco.lower(),
             parentesco_otro_desc=request.parentesco_otro_desc if request.parentesco == 'otro' else None,
-            usuario_creado=request.usuario_creado
+            usuario_creado=email
         )
         
         db.add(miembro)
@@ -304,6 +299,7 @@ def desactivar_miembro(
     RF-R04: Desactivar miembro
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         miembro = db.query(MiembroVivienda).filter(
             MiembroVivienda.miembro_vivienda_pk == miembro_id
         ).first()
@@ -316,7 +312,7 @@ def desactivar_miembro(
         
         miembro.estado = "inactivo"
         miembro.fecha_actualizado = ahora_sin_tz()
-        miembro.usuario_actualizado = usuario.get("email", "admin@gmail.com")
+        miembro.usuario_actualizado = email
 
         db.commit()
 
@@ -351,6 +347,7 @@ def reactivar_miembro(
     RF-R06: Reactivar miembro
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         miembro = db.query(MiembroVivienda).filter(
             MiembroVivienda.miembro_vivienda_pk == miembro_id
         ).first()
@@ -363,7 +360,7 @@ def reactivar_miembro(
         
         miembro.estado = "activo"
         miembro.fecha_actualizado = ahora_sin_tz()
-        miembro.usuario_actualizado = usuario.get("email", "admin@gmail.com")
+        miembro.usuario_actualizado = email
 
         db.commit()
 
@@ -397,6 +394,7 @@ def eliminar_miembro(
     Elimina un miembro de familia (soft delete)
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         miembro = db.query(MiembroVivienda).filter(
             MiembroVivienda.miembro_vivienda_pk == miembro_id
         ).first()
@@ -407,7 +405,6 @@ def eliminar_miembro(
                 detail="Miembro no encontrado"
             )
         
-        email = usuario.get("email", "admin@gmail.com")
         miembro.eliminado = True
         miembro.estado = "inactivo"
         miembro.motivo_eliminado = request.motivo
@@ -667,7 +664,7 @@ async def solicitar_registro_miembro(
 
         db.commit()
 
-        registrar_bitacora(db, usuario, "miembro_vivienda", 0,
+        registrar_bitacora(db, {}, "miembro_vivienda", 0,
                            "solicitar",
                            f"Solicitud de miembro: {request.nombres} {request.apellidos}")
 
@@ -774,6 +771,7 @@ async def aprobar_solicitud_miembro(
 ):
     """Aprueba la solicitud: crea Persona + MiembroVivienda(activo)"""
     persona_id = usuario.get("persona_id")
+    email = usuario.get("email", "") or "user_system"
 
     try:
         notificacion = db.query(Notificacion).filter(
@@ -833,7 +831,7 @@ async def aprobar_solicitud_miembro(
             celular=datos.get("celular"),
             direccion_alternativa=datos.get("direccion_alternativa"),
             estado="activo",
-            usuario_creado=request_body.usuario_actualizado,
+            usuario_creado=email,
         )
         db.add(nueva_persona)
         db.flush()
@@ -845,7 +843,7 @@ async def aprobar_solicitud_miembro(
             parentesco=datos.get("parentesco"),
             parentesco_otro_desc=datos.get("parentesco_otro_desc"),
             estado="activo",
-            usuario_creado=request_body.usuario_actualizado,
+            usuario_creado=email,
         )
         db.add(nuevo_miembro)
         db.flush()
@@ -1150,7 +1148,7 @@ def bloquear_miembro_por_residente(
 
     miembro.estado = "inactivo"
     miembro.fecha_actualizado = ahora_sin_tz()
-    miembro.usuario_actualizado = usuario.get("email", "")
+    miembro.usuario_actualizado = usuario.get("email", "") or "user_system"
     db.commit()
 
     registrar_bitacora(db, usuario, "miembro_vivienda", miembro_id,
@@ -1204,7 +1202,7 @@ def desbloquear_miembro_por_residente(
 
     miembro.estado = "activo"
     miembro.fecha_actualizado = ahora_sin_tz()
-    miembro.usuario_actualizado = usuario.get("email", "")
+    miembro.usuario_actualizado = usuario.get("email", "") or "user_system"
     db.commit()
 
     registrar_bitacora(db, usuario, "miembro_vivienda", miembro_id,
@@ -1322,7 +1320,7 @@ def crear_visitante_usuario(
         vivienda_visita_fk=vivienda_id,
         identificacion=request.get("telefono", request.get("identificacion", "")),
         nombres=request.get("nombre", ""),
-        usuario_creado=usuario.get("email", ""),
+        usuario_creado=usuario.get("email", "") or "user_system",
     )
     db.add(visita)
     db.commit()

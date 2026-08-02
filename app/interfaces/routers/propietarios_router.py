@@ -38,9 +38,6 @@ class RegistrarPropietarioRequest(BaseModel):
     manzana: str
     villa: str
     
-    # Auditoría
-    usuario_creado: str = ""
-
     # Indica que viene del flujo de cambio de propietario
     from_change_owner: bool = False
 
@@ -56,7 +53,6 @@ class RegistrarConyyugeRequest(BaseModel):
     correo: EmailStr
     celular: str
     direccion_alternativa: str = None
-    usuario_creado: str = ""
 
     @field_validator("identificacion")
     @classmethod
@@ -106,13 +102,11 @@ class RegistrarConyyugeRequest(BaseModel):
 class BajaRequest(BaseModel):
     """Schema para baja de propietario"""
     motivo: str
-    usuario_actualizado: str = ""
 
 
 class EliminarPropietarioRequest(BaseModel):
     """Schema para eliminar propietario (body del DELETE)"""
     motivo: str = "Cambio de propietario"
-    usuario_actualizado: str = ""
 
 
 class CambioPropiedadRequest(BaseModel):
@@ -120,7 +114,6 @@ class CambioPropiedadRequest(BaseModel):
     vivienda_id: int
     nuevo_propietario_id: int
     motivo_cambio: str
-    usuario_actualizado: str = ""
 
 
 class ActualizarPropietarioRequest(BaseModel):
@@ -128,7 +121,6 @@ class ActualizarPropietarioRequest(BaseModel):
     correo_nuevo: str = None
     celular_nuevo: str = None
     direccion_alternativa: str = None
-    usuario_actualizado: str = ""
 
 
 @router.post("", response_model=dict)
@@ -142,6 +134,7 @@ def registrar_propietario(
     RF-P01: Registrar propietario
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         # Validar vivienda por manzana y villa
         vivienda = db.query(Vivienda).filter(
             Vivienda.manzana == request.manzana,
@@ -176,7 +169,7 @@ def registrar_propietario(
             correo=request.correo,
             celular=request.celular,
             direccion_alternativa=request.direccion_alternativa,
-            usuario_creado=request.usuario_creado
+            usuario_creado=email
         )
         
         db.add(persona)
@@ -193,7 +186,7 @@ def registrar_propietario(
                 PropietarioVivienda.eliminado == False
             ).first()
             if anterior:
-                email = usuario.get("email", "admin@gmail.com")
+                email = usuario.get("email", "") or "user_system"
                 anterior.estado = "inactivo"
                 anterior.eliminado = True
                 anterior.fecha_actualizado = datetime.utcnow()
@@ -233,7 +226,7 @@ def registrar_propietario(
             persona_propietario_fk=persona.persona_pk,
             tipo_propietario="titular",
             estado="activo",
-            usuario_creado=request.usuario_creado
+            usuario_creado=email
         )
         
         db.add(propietario)
@@ -340,6 +333,7 @@ def registrar_conyuge_propietario(
     RF-P02: Registrar cónyuge
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         # Validar propietario existe y activo
         propietario = db.query(PropietarioVivienda).filter(
             PropietarioVivienda.propietario_vivienda_pk == propietario_id,
@@ -375,7 +369,7 @@ def registrar_conyuge_propietario(
             correo=request.correo,
             celular=request.celular,
             direccion_alternativa=request.direccion_alternativa,
-            usuario_creado=request.usuario_creado
+            usuario_creado=email
         )
         
         db.add(persona)
@@ -401,7 +395,7 @@ def registrar_conyuge_propietario(
             persona_propietario_fk=persona.persona_pk,
             tipo_propietario="conyuge",
             estado="activo",
-            usuario_creado=request.usuario_creado
+            usuario_creado=email
         )
         
         db.add(conyuge)
@@ -507,7 +501,7 @@ def eliminar_propietario(
                 detail="Propietario no encontrado"
             )
         
-        email = usuario.get("email", "admin@gmail.com")
+        email = usuario.get("email", "") or "user_system"
         propietario.eliminado = True
         propietario.estado = "inactivo"
         propietario.motivo_eliminado = request.motivo
@@ -544,6 +538,7 @@ def actualizar_propietario(
     Campos NO modificables: identificación, nombres, apellidos, manzana, villa
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         propietario = db.query(PropietarioVivienda).filter(
             PropietarioVivienda.propietario_vivienda_pk == propietario_id,
             PropietarioVivienda.eliminado == False
@@ -583,7 +578,7 @@ def actualizar_propietario(
             persona.direccion_alternativa = request.direccion_alternativa
         
         persona.fecha_actualizado = ahora_sin_tz()
-        persona.usuario_actualizado = request.usuario_actualizado
+        persona.usuario_actualizado = email
         
         db.commit()
 
@@ -624,6 +619,7 @@ def baja_propietario(
     RF-P04: Desactiva propietario e inactiva también al cónyuge si existe
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         if not request.motivo:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -650,7 +646,7 @@ def baja_propietario(
         # Cambiar propietario a inactivo
         propietario.estado = "inactivo"
         propietario.fecha_actualizado = ahora_sin_tz()
-        propietario.usuario_actualizado = request.usuario_actualizado
+        propietario.usuario_actualizado = email
         propietario.motivo_eliminado = request.motivo
         
         # Obtener y desactivar cónyuge si existe
@@ -667,7 +663,7 @@ def baja_propietario(
         if conyuge_prop:
             conyuge_prop.estado = "inactivo"
             conyuge_prop.fecha_actualizado = ahora_sin_tz()
-            conyuge_prop.usuario_actualizado = request.usuario_actualizado
+            conyuge_prop.usuario_actualizado = email
             conyuge_prop.motivo_eliminado = f"Baja asociada a propietario titular: {request.motivo}"
             conyuge_procesado = True
         
@@ -703,6 +699,7 @@ def desbloquear_propietario(
     usuario: dict = Depends(requerir_rol("admin")),
 ):
     """Reactiva un propietario que fue dado de baja. Tambien reactiva al conyuge si existe."""
+    email = usuario.get("email", "") or "user_system"
     motivo = request.get("motivo")
     if not motivo or not motivo.strip():
         raise HTTPException(
@@ -727,6 +724,7 @@ def desbloquear_propietario(
 
     propietario.estado = "activo"
     propietario.fecha_actualizado = datetime.utcnow()
+    propietario.usuario_actualizado = email
 
     conyuge = db.query(PropietarioVivienda).filter(
         PropietarioVivienda.vivienda_propiedad_fk == propietario.vivienda_propiedad_fk,
@@ -738,6 +736,7 @@ def desbloquear_propietario(
     if conyuge:
         conyuge.estado = "activo"
         conyuge.fecha_actualizado = datetime.utcnow()
+        conyuge.usuario_actualizado = email
         conyuge_reactivado = True
 
     db.commit()
@@ -774,8 +773,10 @@ def cambio_propietario_vivienda(
         "Usar POST /viviendas/cambio-propietario",
         DeprecationWarning,
     )
-    db: Session = Depends(get_db),
-    usuario: dict = Depends(requerir_rol("admin")),
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint deprecado. Usar POST /api/v1/viviendas/cambio-propietario",
+    )
 
 
 @router.get("/manzana-villa/{manzana}/{villa}", response_model=dict)
@@ -854,7 +855,6 @@ def obtener_propietarios_por_ubicacion(
 class ActualizarConyugeRequest(BaseModel):
     correo: str = None
     celular: str = None
-    usuario_actualizado: str = ""
 
 
 @router.put("/conyuges/{conyuge_id}", response_model=dict)
@@ -865,6 +865,7 @@ def actualizar_conyuge(
     usuario: dict = Depends(requerir_rol("admin")),
 ):
     """Actualiza correo y celular de un conyuge."""
+    email = usuario.get("email", "") or "user_system"
     prop = db.query(PropietarioVivienda).filter(
         PropietarioVivienda.propietario_vivienda_pk == conyuge_id,
         PropietarioVivienda.tipo_propietario == "conyuge",
@@ -880,7 +881,7 @@ def actualizar_conyuge(
     if request.celular:
         persona.celular = request.celular
     persona.fecha_actualizado = ahora_sin_tz()
-    persona.usuario_actualizado = request.usuario_actualizado
+    persona.usuario_actualizado = email
     db.commit()
     return {"success": True, "mensaje": "Conyuge actualizado correctamente"}
 
@@ -900,7 +901,7 @@ def eliminar_conyuge(
     ).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Conyuge no encontrado")
-    email = usuario.get("email", "admin@gmail.com")
+    email = usuario.get("email", "") or "user_system"
     prop.eliminado = True
     prop.motivo_eliminado = request.motivo
     prop.estado = "inactivo"

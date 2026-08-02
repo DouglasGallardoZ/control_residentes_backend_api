@@ -29,7 +29,6 @@ class SolicitarMiembroRequest(BaseModel):
         ..., description="padre|madre|esposo|esposa|hijo|hija|otro"
     )
     parentesco_otro_desc: Optional[str] = None
-    usuario_creado: str = Field(default="api_system")
     token_fcm: Optional[str] = Field(
         None,
         description="Token FCM del dispositivo del miembro (opcional, para recibir push al aprobar/rechazar)",
@@ -86,7 +85,6 @@ class SolicitudesPendientesResponse(BaseModel):
 
 class AprobarRechazarRequest(BaseModel):
     """Schema para PUT /miembros/solicitudes/{id}/aprobar y .../rechazar"""
-    usuario_actualizado: str = Field(default="")
     motivo: Optional[str] = None
     fecha_actualizado: Optional[str] = None
 

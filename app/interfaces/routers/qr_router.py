@@ -35,6 +35,7 @@ def generar_qr_propio(
     RF-Q01
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         usuario_id = usuario.get("persona_id")
         if not usuario_id:
             raise HTTPException(
@@ -126,7 +127,7 @@ def generar_qr_propio(
             hora_fin_vigencia=hora_fin,
             token=token,
             estado="vigente",
-            usuario_creado=request.usuario_creado
+            usuario_creado=email
         )
         
         db.add(qr)
@@ -166,6 +167,7 @@ def generar_qr_visita(
     RF-Q02
     """
     try:
+        email = usuario.get("email", "") or "user_system"
         usuario_id = usuario.get("persona_id")
         if not usuario_id:
             raise HTTPException(
@@ -269,7 +271,7 @@ def generar_qr_visita(
                 identificacion=request.visita_identificacion,
                 nombres=request.visita_nombres,
                 apellidos=request.visita_apellidos,
-                usuario_creado=request.usuario_creado
+                usuario_creado=email
             )
             
             db.add(visita)
@@ -289,7 +291,7 @@ def generar_qr_visita(
             hora_fin_vigencia=hora_fin,
             token=token,
             estado="vigente",
-            usuario_creado=request.usuario_creado
+            usuario_creado=email
         )
         
         db.add(qr)
