@@ -28,7 +28,7 @@ def validar_cedula_ecuatoriana(cedula: str) -> bool:
 
 def validar_identificacion(
     identificacion: str,
-    tipo_identificacion: str = "cedula",
+    tipo_identificacion: str = "Cedula",
 ) -> Optional[str]:
     """
     Valida identificación. Retorna mensaje de error o None si es válida.
@@ -37,7 +37,7 @@ def validar_identificacion(
     if not identificacion or not identificacion.strip():
         return "Error: la identificacion no puede estar vacia"
 
-    if tipo_identificacion.lower() in ("cedula", "ced"):
+    if tipo_identificacion.lower() in ("Cedula", "ced"):
         if not identificacion.isdigit():
             return "Error: la cédula debe contener solo dígitos"
         if len(identificacion) != 10:

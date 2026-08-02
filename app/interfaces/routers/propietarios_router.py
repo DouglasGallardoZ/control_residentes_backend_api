@@ -58,8 +58,8 @@ class RegistrarConyyugeRequest(BaseModel):
     @field_validator("identificacion")
     @classmethod
     def validar_identificacion(cls, v, info):
-        tipo = info.data.get("tipo_identificacion", "cedula")
-        if tipo == "cedula":
+        tipo = info.data.get("tipo_identificacion", "Cedula")
+        if tipo == "Cedula":
             if not v or not v.isdigit() or len(v) != 10:
                 raise ValueError("Error: cedula ecuatoriana invalida")
             if not validar_cedula_ecuatoriana(v):
@@ -103,6 +103,12 @@ class RegistrarConyyugeRequest(BaseModel):
 class BajaRequest(BaseModel):
     """Schema para baja de propietario"""
     motivo: str
+    usuario_actualizado: str = ""
+
+
+class EliminarPropietarioRequest(BaseModel):
+    """Schema para eliminar propietario (body del DELETE)"""
+    motivo: str = "Cambio de propietario"
     usuario_actualizado: str = ""
 
 
@@ -442,8 +448,7 @@ def obtener_propietarios_vivienda(
 @router.delete("/{propietario_id}", response_model=dict)
 def eliminar_propietario(
     propietario_id: int,
-    motivo_eliminado: str = "Cambio de propietario",
-    usuario_actualizado: str = "",
+    request: EliminarPropietarioRequest,
     db: Session = Depends(get_db),
     usuario: dict = Depends(requerir_rol("admin")),
 ):
@@ -461,10 +466,12 @@ def eliminar_propietario(
                 detail="Propietario no encontrado"
             )
         
+        email = usuario.get("email", "admin@gmail.com")
         propietario.eliminado = True
-        propietario.motivo_eliminado = motivo_eliminado
+        propietario.estado = "inactivo"
+        propietario.motivo_eliminado = request.motivo
         propietario.fecha_actualizado = ahora_sin_tz()
-        propietario.usuario_actualizado = usuario_actualizado
+        propietario.usuario_actualizado = email
         
         db.commit()
         
@@ -840,8 +847,7 @@ def actualizar_conyuge(
 @router.delete("/conyuges/{conyuge_id}", response_model=dict)
 def eliminar_conyuge(
     conyuge_id: int,
-    motivo: str = "Eliminacion de conyuge",
-    usuario_actualizado: str = "",
+    request: EliminarPropietarioRequest,
     db: Session = Depends(get_db),
     usuario: dict = Depends(requerir_rol("admin")),
 ):
@@ -853,10 +859,11 @@ def eliminar_conyuge(
     ).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Conyuge no encontrado")
+    email = usuario.get("email", "admin@gmail.com")
     prop.eliminado = True
-    prop.motivo_eliminado = motivo
+    prop.motivo_eliminado = request.motivo
     prop.estado = "inactivo"
     prop.fecha_actualizado = ahora_sin_tz()
-    prop.usuario_actualizado = usuario_actualizado
+    prop.usuario_actualizado = email
     db.commit()
     return {"success": True, "mensaje": "Conyuge eliminado correctamente"}

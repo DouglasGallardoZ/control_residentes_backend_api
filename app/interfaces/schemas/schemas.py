@@ -24,7 +24,7 @@ class PersonaBase(BaseModel):
     @field_validator("identificacion")
     @classmethod
     def validar_id(cls, v, info):
-        tipo = info.data.get("tipo_identificacion", "cedula")
+        tipo = info.data.get("tipo_identificacion", "Cedula")
         error = validar_identificacion(v, tipo)
         if error:
             raise ValueError(error)
@@ -130,6 +130,12 @@ class ResidenteDesactivar(BaseModel):
     motivo: str
     usuario_actualizado: str
     fecha_actualizado: Optional[str] = None
+
+
+class EliminarResidenteRequest(BaseModel):
+    """Schema para eliminar residente (body del DELETE)"""
+    motivo: str = "Residente eliminado"
+    usuario_actualizado: Optional[str] = None
 
 
 class AgregarFotoRequest(BaseModel):

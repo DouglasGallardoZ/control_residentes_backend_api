@@ -22,10 +22,16 @@ class CuentaFirebaseCreate(BaseModel):
 
 class BloquearDesbloquearRequest(BaseModel):
     """Schema para bloquear/desbloquear cuenta"""
-    usuario_actualizado: str
+    usuario_actualizado: Optional[str] = None
     motivo: str = "Cuenta modificada"
     cascada: bool = True
     fecha_actualizado: Optional[str] = None
+
+
+class EliminarCuentaRequest(BaseModel):
+    """Schema para eliminar cuenta (body del DELETE)"""
+    motivo: str = "Cuenta eliminada"
+    usuario_actualizado: Optional[str] = None
 
 
 @router.post("/residente/firebase", response_model=dict)
@@ -289,16 +295,17 @@ def bloquear_cuenta(
                         cuentas_a_bloquear.append(cuenta_miembro)
         
         # Bloquear todas las cuentas
+        email = usuario.get("email", "admin@gmail.com")
         for cuenta in cuentas_a_bloquear:
             cuenta.estado = "inactivo"
             cuenta.fecha_actualizado = ahora_sin_tz()
-            cuenta.usuario_actualizado = request.usuario_actualizado
+            cuenta.usuario_actualizado = email
             
             evento = EventoCuenta(
                 cuenta_afectada_fk=cuenta.cuenta_pk,
                 tipo_evento="cuenta_bloqueada",
                 motivo=request.motivo,
-                usuario_creado=request.usuario_actualizado
+                usuario_creado=email
             )
             db.add(evento)
         
@@ -390,16 +397,17 @@ def desbloquear_cuenta(
                         cuentas_a_desbloquear.append(cuenta_miembro)
         
         # Desbloquear todas las cuentas
+        email = usuario.get("email", "admin@gmail.com")
         for cuenta in cuentas_a_desbloquear:
             cuenta.estado = "activo"
             cuenta.fecha_actualizado = ahora_sin_tz()
-            cuenta.usuario_actualizado = request.usuario_actualizado
+            cuenta.usuario_actualizado = email
             
             evento = EventoCuenta(
                 cuenta_afectada_fk=cuenta.cuenta_pk,
                 tipo_evento="cuenta_desbloqueada",
                 motivo=request.motivo,
-                usuario_creado=request.usuario_actualizado
+                usuario_creado=email
             )
             db.add(evento)
         
@@ -428,8 +436,7 @@ def desbloquear_cuenta(
 @router.delete("/{cuenta_id}", response_model=dict)
 def eliminar_cuenta(
     cuenta_id: int,
-    usuario_actualizado: str,
-    motivo: str = "Cuenta eliminada",
+    request: EliminarCuentaRequest,
     db: Session = Depends(get_db),
     usuario: dict = Depends(requerir_rol("admin")),
 ):
@@ -451,18 +458,21 @@ def eliminar_cuenta(
                 detail="La cuenta ya ha sido eliminada"
             )
         
+        email = usuario.get("email", "admin@gmail.com")
+        
         # Marcar como eliminado (soft delete)
         cuenta.eliminado = True
-        cuenta.motivo_eliminado = motivo
+        cuenta.estado = 'inactivo'
+        cuenta.motivo_eliminado = request.motivo
         cuenta.fecha_actualizado = ahora_sin_tz()
-        cuenta.usuario_actualizado = usuario_actualizado
+        cuenta.usuario_actualizado = email
         
         # Registrar evento
         evento = EventoCuenta(
             cuenta_afectada_fk=cuenta.cuenta_pk,
             tipo_evento="cuenta_eliminada",
-            motivo=motivo,
-            usuario_creado=usuario_actualizado
+            motivo=request.motivo,
+            usuario_creado=email
         )
         db.add(evento)
         
@@ -782,7 +792,7 @@ def obtener_usuarios_vivienda(
                     "identificacion": persona.identificacion,
                     "nombres": persona.nombres,
                     "apellidos": persona.apellidos,
-                    "correo": persona.correo,
+                    "correo": cuenta.username,
                     "celular": persona.celular,
                     "tipo": "residente",
                     "estado": cuenta.estado
@@ -810,7 +820,7 @@ def obtener_usuarios_vivienda(
                     "identificacion": persona.identificacion,
                     "nombres": persona.nombres,
                     "apellidos": persona.apellidos,
-                    "correo": persona.correo,
+                    "correo": cuenta.username,
                     "celular": persona.celular,
                     "tipo": "miembro_familia",
                     "estado": cuenta.estado

@@ -17,7 +17,7 @@ class SolicitarMiembroRequest(BaseModel):
     manzana: str
     villa: str
     identificacion: str = Field(..., max_length=20)
-    tipo_identificacion: str = Field(default="cedula")
+    tipo_identificacion: str = Field(default="Cedula")
     nombres: str
     apellidos: str
     fecha_nacimiento: date
@@ -42,7 +42,7 @@ class SolicitarMiembroRequest(BaseModel):
     @field_validator("identificacion")
     @classmethod
     def validar_id(cls, v, info):
-        tipo = info.data.get("tipo_identificacion", "cedula")
+        tipo = info.data.get("tipo_identificacion", "Cedula")
         error = validar_identificacion(v, tipo)
         if error:
             raise ValueError(error)

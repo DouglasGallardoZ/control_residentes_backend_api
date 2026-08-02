@@ -27,6 +27,12 @@ import json
 router = APIRouter(prefix="/api/v1/miembros", tags=["Miembros de Familia"])
 
 
+class EliminarMiembroRequest(BaseModel):
+    """Schema para eliminar miembro (body del DELETE)"""
+    motivo: str = "Eliminación de miembro"
+    usuario_actualizado: Optional[str] = None
+
+
 @router.get("/familia", response_model=dict)
 def listar_miembros_familia(
     page: int = Query(1, ge=1),
@@ -290,7 +296,8 @@ def obtener_miembros_familia(
 def desactivar_miembro(
     miembro_id: int,
     request: DesactivarMiembroRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Desactiva un miembro de familia
@@ -309,7 +316,7 @@ def desactivar_miembro(
         
         miembro.estado = "inactivo"
         miembro.fecha_actualizado = ahora_sin_tz()
-        miembro.usuario_actualizado = request.usuario_actualizado
+        miembro.usuario_actualizado = usuario.get("email", "admin@gmail.com")
 
         db.commit()
 
@@ -336,7 +343,8 @@ def desactivar_miembro(
 def reactivar_miembro(
     miembro_id: int,
     request: ReactivarMiembroRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Reactiva un miembro de familia
@@ -355,7 +363,7 @@ def reactivar_miembro(
         
         miembro.estado = "activo"
         miembro.fecha_actualizado = ahora_sin_tz()
-        miembro.usuario_actualizado = request.usuario_actualizado
+        miembro.usuario_actualizado = usuario.get("email", "admin@gmail.com")
 
         db.commit()
 
@@ -381,9 +389,9 @@ def reactivar_miembro(
 @router.delete("/{miembro_id}", response_model=dict)
 def eliminar_miembro(
     miembro_id: int,
-    motivo_eliminado: str = "Eliminación de miembro",
-    usuario_actualizado: str = "api_user",
-    db: Session = Depends(get_db)
+    request: EliminarMiembroRequest,
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
 ):
     """
     Elimina un miembro de familia (soft delete)
@@ -399,10 +407,12 @@ def eliminar_miembro(
                 detail="Miembro no encontrado"
             )
         
+        email = usuario.get("email", "admin@gmail.com")
         miembro.eliminado = True
-        miembro.motivo_eliminado = motivo_eliminado
+        miembro.estado = "inactivo"
+        miembro.motivo_eliminado = request.motivo
         miembro.fecha_actualizado = ahora_sin_tz()
-        miembro.usuario_actualizado = usuario_actualizado
+        miembro.usuario_actualizado = email
 
         db.commit()
 
@@ -814,7 +824,7 @@ async def aprobar_solicitud_miembro(
 
         nueva_persona = Persona(
             identificacion=datos.get("identificacion"),
-            tipo_identificacion=datos.get("tipo_identificacion", "cedula"),
+            tipo_identificacion=datos.get("tipo_identificacion", "Cedula"),
             nombres=datos.get("nombres"),
             apellidos=datos.get("apellidos"),
             fecha_nacimiento=fecha_nac,

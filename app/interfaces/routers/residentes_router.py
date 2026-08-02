@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.infrastructure.db import get_db
 from app.interfaces.schemas.schemas import (
-    ResidenteCreate, ResidenteResponse, ResidenteDesactivar, ResidenteReactivar, AgregarFotoRequest
+    ResidenteCreate, ResidenteResponse, ResidenteDesactivar, ResidenteReactivar, AgregarFotoRequest, EliminarResidenteRequest
 )
 from app.infrastructure.db.models import Persona, ResidenteVivienda, Vivienda
 from datetime import datetime
@@ -171,6 +171,56 @@ def desactivar_residente(
             "miembros_desactivados": miembros_desactivados,
         }
     
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.delete("/{residente_id}", response_model=dict)
+def eliminar_residente(
+    residente_id: int,
+    request: EliminarResidenteRequest,
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(requerir_rol("admin")),
+):
+    """
+    Elimina un residente (soft delete)
+    """
+    try:
+        residente = db.query(ResidenteVivienda).filter(
+            ResidenteVivienda.persona_residente_fk == residente_id,
+            ResidenteVivienda.eliminado == False,
+        ).first()
+
+        if not residente:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Residente no encontrado"
+            )
+
+        email = usuario.get("email", "admin@gmail.com")
+        residente.eliminado = True
+        residente.estado = "inactivo"
+        residente.motivo_eliminado = request.motivo
+        residente.fecha_actualizado = ahora_sin_tz()
+        residente.usuario_actualizado = email
+
+        db.commit()
+
+        registrar_bitacora(db, usuario, "residente_vivienda", residente_id,
+                           "eliminar", f"Residente {residente_id} eliminado")
+
+        return {
+            "success": True,
+            "mensaje": "Residente eliminado correctamente",
+            "residente_id": residente_id,
+        }
+
     except HTTPException:
         raise
     except Exception as e:
