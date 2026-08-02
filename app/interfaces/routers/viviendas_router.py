@@ -673,21 +673,11 @@ def cambio_propietario(
             detail="Propietario no encontrado",
         )
 
-    ya_asignado = (
-        db.query(PropietarioVivienda)
-        .filter(
-            PropietarioVivienda.vivienda_propiedad_fk == request.vivienda_id,
-            PropietarioVivienda.persona_propietario_fk == request.nuevo_propietario_id,
-        )
-        .first()
-    )
-    if ya_asignado:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El propietario ya esta asignado a esta vivienda",
-        )
-
     propietario_anterior_id = None
+    email = usuario.get("email", "admin@gmail.com")
+
+    # 1. PRIMERO: desactivar propietario actual + conyuge
+    #    (libera la constraint de un solo propietario activo por vivienda)
     if request.tipo == "titular":
         anterior = (
             db.query(PropietarioVivienda)
@@ -702,28 +692,89 @@ def cambio_propietario(
         if anterior:
             propietario_anterior_id = anterior.persona_propietario_fk
             anterior.estado = "inactivo"
+            anterior.eliminado = True
             anterior.fecha_actualizado = datetime.utcnow()
-            anterior.usuario_actualizado = request.usuario_actualizado
+            anterior.usuario_actualizado = email
 
-    fecha = (
-        datetime.fromisoformat(request.fecha_actualizado)
-        if request.fecha_actualizado
-        else datetime.utcnow()
+            conyuge = (
+                db.query(PropietarioVivienda)
+                .filter(
+                    PropietarioVivienda.vivienda_propiedad_fk == request.vivienda_id,
+                    PropietarioVivienda.tipo_propietario == "conyuge",
+                    PropietarioVivienda.estado == "activo",
+                    PropietarioVivienda.eliminado == False,
+                )
+                .first()
+            )
+            if conyuge:
+                conyuge.estado = "inactivo"
+                conyuge.eliminado = True
+                conyuge.fecha_actualizado = datetime.utcnow()
+                conyuge.usuario_actualizado = email
+                registrar_bitacora(
+                    db, usuario, "propietario_vivienda", conyuge.propietario_vivienda_pk,
+                    "cambiar_propietario",
+                    "Conyuge del propietario anterior desactivado",
+                    valor_anterior="activo", valor_nuevo="inactivo",
+                )
+
+        # Fuerza la escritura para liberar la constraint ANTES de activar el nuevo
+        db.flush()
+
+    # 2. AHORA: reactivar o crear el nuevo propietario (ya no hay activos)
+    asignacion_previa = (
+        db.query(PropietarioVivienda)
+        .filter(
+            PropietarioVivienda.vivienda_propiedad_fk == request.vivienda_id,
+            PropietarioVivienda.persona_propietario_fk == request.nuevo_propietario_id,
+            PropietarioVivienda.eliminado == True,
+        )
+        .first()
     )
 
-    nuevo = PropietarioVivienda(
-        vivienda_propiedad_fk=request.vivienda_id,
-        persona_propietario_fk=request.nuevo_propietario_id,
-        tipo_propietario=request.tipo,
-        estado="activo",
-        usuario_creado=request.usuario_actualizado,
-        fecha_creado=fecha,
-    )
-    db.add(nuevo)
+    reactivado = False
+    if asignacion_previa:
+        asignacion_previa.estado = "activo"
+        asignacion_previa.eliminado = False
+        asignacion_previa.tipo_propietario = request.tipo
+        asignacion_previa.fecha_actualizado = datetime.utcnow()
+        asignacion_previa.usuario_actualizado = email
+        nuevo = asignacion_previa
+        reactivado = True
+    else:
+        ya_asignado = (
+            db.query(PropietarioVivienda)
+            .filter(
+                PropietarioVivienda.vivienda_propiedad_fk == request.vivienda_id,
+                PropietarioVivienda.persona_propietario_fk == request.nuevo_propietario_id,
+                PropietarioVivienda.eliminado == False,
+            )
+            .first()
+        )
+        if ya_asignado:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El propietario ya esta asignado a esta vivienda",
+            )
+
+        fecha = (
+            datetime.fromisoformat(request.fecha_actualizado)
+            if request.fecha_actualizado
+            else datetime.utcnow()
+        )
+
+        nuevo = PropietarioVivienda(
+            vivienda_propiedad_fk=request.vivienda_id,
+            persona_propietario_fk=request.nuevo_propietario_id,
+            tipo_propietario=request.tipo,
+            estado="activo",
+            usuario_creado=email,
+            fecha_creado=fecha,
+        )
+        db.add(nuevo)
 
     residente_reasociado = False
     if propietario_anterior_id:
-        ...
         residente_anterior = db.query(ResidenteVivienda).filter(
             ResidenteVivienda.vivienda_reside_fk == request.vivienda_id,
             ResidenteVivienda.persona_residente_fk == propietario_anterior_id,
@@ -733,6 +784,7 @@ def cambio_propietario(
         if residente_anterior:
             residente_anterior.estado = "inactivo"
             residente_anterior.fecha_actualizado = datetime.utcnow()
+            residente_anterior.usuario_actualizado = email
             residente_existente = db.query(ResidenteVivienda).filter(
                 ResidenteVivienda.vivienda_reside_fk == request.vivienda_id,
                 ResidenteVivienda.persona_residente_fk == request.nuevo_propietario_id,
@@ -741,18 +793,20 @@ def cambio_propietario(
             if residente_existente:
                 residente_existente.estado = "activo"
                 residente_existente.fecha_actualizado = datetime.utcnow()
+                residente_existente.usuario_actualizado = email
             else:
                 nuevo_residente = ResidenteVivienda(
                     vivienda_reside_fk=request.vivienda_id,
                     persona_residente_fk=request.nuevo_propietario_id,
                     estado="activo",
-                    usuario_creado=request.usuario_actualizado,
+                    usuario_creado=email,
                 )
                 db.add(nuevo_residente)
             residente_reasociado = True
 
+    accion = "reactivar" if reactivado else "cambiar_propietario"
     registrar_bitacora(db, usuario, "propietario_vivienda", request.vivienda_id,
-                       "cambiar_propietario",
+                       accion,
                        f"Cambio de propietario. Anterior: {propietario_anterior_id or 'ninguno'}. Nuevo: {request.nuevo_propietario_id}",
                        valor_anterior=str(propietario_anterior_id or ''), valor_nuevo=str(request.nuevo_propietario_id))
 
@@ -760,10 +814,14 @@ def cambio_propietario(
 
     return ViviendaCambioPropietarioResponse(
         mensaje=(
-            "Propietario asignado correctamente. "
-            "Nuevo propietario asignado como residente de la vivienda."
-            if residente_reasociado
-            else "Propietario asignado correctamente"
+            "Propietario reactivado correctamente en la vivienda."
+            if reactivado
+            else (
+                "Propietario asignado correctamente. "
+                "Nuevo propietario asignado como residente de la vivienda."
+                if residente_reasociado
+                else "Propietario asignado correctamente"
+            )
         ),
         vivienda_id=request.vivienda_id,
         propietario_anterior_id=propietario_anterior_id,

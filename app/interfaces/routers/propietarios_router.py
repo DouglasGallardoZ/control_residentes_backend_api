@@ -41,6 +41,9 @@ class RegistrarPropietarioRequest(BaseModel):
     # Auditoría
     usuario_creado: str = ""
 
+    # Indica que viene del flujo de cambio de propietario
+    from_change_owner: bool = False
+
 
 class RegistrarConyyugeRequest(BaseModel):
     """Schema para registrar cónyuge como copropietario"""
@@ -179,19 +182,50 @@ def registrar_propietario(
         db.add(persona)
         db.flush()
         
-        # Validar que no exista un propietario titular activo en esta vivienda
-        propietario_titular_existente = db.query(PropietarioVivienda).filter(
-            PropietarioVivienda.vivienda_propiedad_fk == vivienda_id,
-            PropietarioVivienda.tipo_propietario == "titular",
-            PropietarioVivienda.estado == "activo",
-            PropietarioVivienda.eliminado == False
-        ).first()
-        
-        if propietario_titular_existente:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Esta vivienda ya tiene un propietario titular registrado"
-            )
+        # Validar propietario titular activo en esta vivienda
+        anterior = None
+        if request.from_change_owner:
+            # PRIMERO desactivar al anterior (para liberar constraint)
+            anterior = db.query(PropietarioVivienda).filter(
+                PropietarioVivienda.vivienda_propiedad_fk == vivienda_id,
+                PropietarioVivienda.tipo_propietario == "titular",
+                PropietarioVivienda.estado == "activo",
+                PropietarioVivienda.eliminado == False
+            ).first()
+            if anterior:
+                email = usuario.get("email", "admin@gmail.com")
+                anterior.estado = "inactivo"
+                anterior.eliminado = True
+                anterior.fecha_actualizado = datetime.utcnow()
+                anterior.usuario_actualizado = email
+
+                conyuge = db.query(PropietarioVivienda).filter(
+                    PropietarioVivienda.vivienda_propiedad_fk == vivienda_id,
+                    PropietarioVivienda.tipo_propietario == "conyuge",
+                    PropietarioVivienda.estado == "activo",
+                    PropietarioVivienda.eliminado == False
+                ).first()
+                if conyuge:
+                    conyuge.estado = "inactivo"
+                    conyuge.eliminado = True
+                    conyuge.fecha_actualizado = datetime.utcnow()
+                    conyuge.usuario_actualizado = email
+
+                db.flush()  # LIBERAR CONSTRAINT antes de crear el nuevo
+        else:
+            # Validación normal: rechazar si ya existe propietario activo
+            propietario_titular_existente = db.query(PropietarioVivienda).filter(
+                PropietarioVivienda.vivienda_propiedad_fk == vivienda_id,
+                PropietarioVivienda.tipo_propietario == "titular",
+                PropietarioVivienda.estado == "activo",
+                PropietarioVivienda.eliminado == False
+            ).first()
+
+            if propietario_titular_existente:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Esta vivienda ya tiene un propietario titular registrado"
+                )
         
         # Crear relación propietario-vivienda con tipo_propietario="titular"
         propietario = PropietarioVivienda(
@@ -216,9 +250,16 @@ def registrar_propietario(
         db.commit()
         db.refresh(persona)
 
-        registrar_bitacora(db, usuario, "propietario_vivienda",
-                           propietario.propietario_vivienda_pk, "crear",
-                           f"Propietario {persona.nombres} {persona.apellidos} creado")
+        if request.from_change_owner:
+            registrar_bitacora(db, usuario, "propietario_vivienda", vivienda_id,
+                               "cambiar_propietario",
+                               f"Propietario anterior desactivado. Nuevo propietario registrado: {persona.persona_pk}",
+                               valor_anterior=str(anterior.persona_propietario_fk) if anterior else "ninguno",
+                               valor_nuevo=str(persona.persona_pk))
+        else:
+            registrar_bitacora(db, usuario, "propietario_vivienda",
+                               propietario.propietario_vivienda_pk, "crear",
+                               f"Propietario {persona.nombres} {persona.apellidos} creado")
 
         return {
             "success": True,
