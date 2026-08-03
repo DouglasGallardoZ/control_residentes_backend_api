@@ -291,7 +291,8 @@ async def _obtener_destinatarios(
 ) -> list:
     """Obtiene destinatarios con filtros opcionales por ubicacion"""
     from app.infrastructure.db.models import (
-        Persona, ResidenteVivienda, MiembroVivienda, Vivienda,
+        Persona, ResidenteVivienda, MiembroVivienda, PropietarioVivienda,
+        Vivienda,
     )
 
     query_residentes = (
@@ -314,6 +315,30 @@ async def _obtener_destinatarios(
         .filter(
             ResidenteVivienda.estado == "activo",
             ResidenteVivienda.eliminado == False,
+            Persona.eliminado == False,
+        )
+    )
+
+    query_propietarios = (
+        db.query(
+            Persona.persona_pk.label("persona_id"),
+            Persona.nombres,
+            Persona.apellidos,
+            Persona.identificacion,
+            Vivienda.manzana,
+            Vivienda.villa,
+        )
+        .join(
+            PropietarioVivienda,
+            Persona.persona_pk == PropietarioVivienda.persona_propietario_fk,
+        )
+        .join(
+            Vivienda,
+            PropietarioVivienda.vivienda_propiedad_fk == Vivienda.vivienda_pk,
+        )
+        .filter(
+            PropietarioVivienda.estado == "activo",
+            PropietarioVivienda.eliminado == False,
             Persona.eliminado == False,
         )
     )
@@ -345,10 +370,12 @@ async def _obtener_destinatarios(
     if manzana:
         mz = manzana.strip().upper()
         query_residentes = query_residentes.filter(Vivienda.manzana == mz)
+        query_propietarios = query_propietarios.filter(Vivienda.manzana == mz)
         query_miembros = query_miembros.filter(Vivienda.manzana == mz)
 
     if villa and manzana:
         query_residentes = query_residentes.filter(Vivienda.villa == villa.strip())
+        query_propietarios = query_propietarios.filter(Vivienda.villa == villa.strip())
         query_miembros = query_miembros.filter(Vivienda.villa == villa.strip())
 
     if busqueda:
@@ -359,40 +386,50 @@ async def _obtener_destinatarios(
             | Persona.identificacion.ilike(termino)
         )
         query_residentes = query_residentes.filter(filtro)
+        query_propietarios = query_propietarios.filter(filtro)
         query_miembros = query_miembros.filter(filtro)
-
-    residentes = query_residentes.all()
-    miembros = query_miembros.all()
 
     resultado = []
     ids_vistos = set()
 
-    for r in residentes:
-        if r.persona_id not in ids_vistos:
-            ids_vistos.add(r.persona_id)
-            resultado.append({
-                "persona_id": r.persona_id,
-                "nombre_completo": f"{r.nombres} {r.apellidos}",
-                "identificacion": r.identificacion,
-                "manzana": r.manzana,
-                "villa": r.villa,
-                "tipo": "residente",
-            })
+    if tipo is None or tipo == "residente":
+        for r in query_residentes.all():
+            if r.persona_id not in ids_vistos:
+                ids_vistos.add(r.persona_id)
+                resultado.append({
+                    "persona_id": r.persona_id,
+                    "nombre_completo": f"{r.nombres} {r.apellidos}",
+                    "identificacion": r.identificacion,
+                    "manzana": r.manzana,
+                    "villa": r.villa,
+                    "tipo": "residente",
+                })
 
-    for m in miembros:
-        if m.persona_id not in ids_vistos:
-            ids_vistos.add(m.persona_id)
-            resultado.append({
-                "persona_id": m.persona_id,
-                "nombre_completo": f"{m.nombres} {m.apellidos}",
-                "identificacion": m.identificacion,
-                "manzana": m.manzana,
-                "villa": m.villa,
-                "tipo": "miembro_familia",
-            })
+    if tipo is None or tipo == "propietario":
+        for p in query_propietarios.all():
+            if p.persona_id not in ids_vistos:
+                ids_vistos.add(p.persona_id)
+                resultado.append({
+                    "persona_id": p.persona_id,
+                    "nombre_completo": f"{p.nombres} {p.apellidos}",
+                    "identificacion": p.identificacion,
+                    "manzana": p.manzana,
+                    "villa": p.villa,
+                    "tipo": "propietario",
+                })
 
-    if tipo:
-        resultado = [r for r in resultado if r.get("tipo") == tipo]
+    if tipo is None or tipo == "miembro_familia":
+        for m in query_miembros.all():
+            if m.persona_id not in ids_vistos:
+                ids_vistos.add(m.persona_id)
+                resultado.append({
+                    "persona_id": m.persona_id,
+                    "nombre_completo": f"{m.nombres} {m.apellidos}",
+                    "identificacion": m.identificacion,
+                    "manzana": m.manzana,
+                    "villa": m.villa,
+                    "tipo": "miembro_familia",
+                })
 
     return sorted(
         resultado,
