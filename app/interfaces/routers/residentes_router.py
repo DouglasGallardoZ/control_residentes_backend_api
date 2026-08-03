@@ -4,7 +4,7 @@ from app.infrastructure.db import get_db
 from app.interfaces.schemas.schemas import (
     ResidenteCreate, ResidenteResponse, ResidenteDesactivar, ResidenteReactivar, AgregarFotoRequest, EliminarResidenteRequest
 )
-from app.infrastructure.db.models import Persona, ResidenteVivienda, Vivienda
+from app.infrastructure.db.models import Persona, ResidenteVivienda, Vivienda, PropietarioVivienda
 from datetime import datetime
 from app.infrastructure.utils.time_utils import ahora_sin_tz
 from app.infrastructure.utils.auditoria_helpers import registrar_bitacora
@@ -36,7 +36,21 @@ def registrar_residente(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Vivienda no encontrada o inactiva"
             )
-        
+
+        # Validar que la vivienda tenga un propietario activo asociado
+        propietario = db.query(PropietarioVivienda).filter(
+            PropietarioVivienda.vivienda_propiedad_fk == vivienda.vivienda_pk,
+            PropietarioVivienda.tipo_propietario.in_(["titular", "conyuge"]),
+            PropietarioVivienda.estado == "activo",
+            PropietarioVivienda.eliminado == False,
+        ).first()
+
+        if not propietario:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La vivienda no tiene un propietario activo asociado. Registre un propietario primero."
+            )
+
         # Validar que no exista residente activo en esa vivienda
         residente_existente = db.query(ResidenteVivienda).filter(
             ResidenteVivienda.vivienda_reside_fk == vivienda.vivienda_pk,
