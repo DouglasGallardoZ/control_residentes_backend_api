@@ -55,16 +55,23 @@ def crear_cuenta_residente_firebase(
                 detail="Residente no encontrado o inactivo"
             )
         
-        # Validar que es residente (existe en ResidenteVivienda)
-        residente = db.query(ResidenteVivienda).filter(
+        # Validar que es residente o propietario activo
+        es_residente = db.query(ResidenteVivienda).filter(
             ResidenteVivienda.persona_residente_fk == request.persona_id,
-            ResidenteVivienda.estado == "activo"
+            ResidenteVivienda.estado == "activo",
+            ResidenteVivienda.eliminado == False,
         ).first()
-        
-        if not residente:
+
+        es_propietario = db.query(PropietarioVivienda).filter(
+            PropietarioVivienda.persona_propietario_fk == request.persona_id,
+            PropietarioVivienda.estado == "activo",
+            PropietarioVivienda.eliminado == False,
+        ).first()
+
+        if not es_residente and not es_propietario:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Persona no es residente activo"
+                detail="Persona no es residente ni propietario activo"
             )
         
         # Validar que no exista cuenta previa
