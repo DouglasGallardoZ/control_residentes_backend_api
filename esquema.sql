@@ -37,9 +37,9 @@ CREATE TABLE vivienda (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT uq_vivienda UNIQUE (manzana, villa),
     CONSTRAINT chk_vivienda_estado CHECK (estado IN ('activo','inactivo')),
     CONSTRAINT chk_vivienda_eliminado_estado
@@ -64,9 +64,9 @@ CREATE TABLE persona (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT chk_persona_estado CHECK (estado IN ('activo','inactivo')),
     CONSTRAINT chk_persona_eliminado_estado
         CHECK (eliminado = FALSE OR estado = 'inactivo')
@@ -87,9 +87,9 @@ CREATE TABLE persona_foto (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20)
+    usuario_actualizado VARCHAR(64)
 );
 
 -- =====================================================
@@ -116,9 +116,9 @@ CREATE TABLE propietario_vivienda (
 	fecha_hasta date NULL,
 	motivo text NULL,
 	fecha_creado timestamp DEFAULT CURRENT_TIMESTAMP NULL,
-	usuario_creado varchar(20) NOT NULL,
+	usuario_creado VARCHAR(64) NOT NULL,
 	fecha_actualizado timestamp NULL,
-	usuario_actualizado varchar(20) NULL,
+	usuario_actualizado VARCHAR(64) NULL,
 	tipo_propietario varchar(20) DEFAULT 'titular'::character varying NOT NULL,
 	CONSTRAINT chk_propietario_eliminado_estado CHECK (((eliminado = false) OR ((estado)::text = 'inactivo'::text))),
 	CONSTRAINT chk_propietario_estado CHECK (((estado)::text = ANY ((ARRAY['activo'::character varying, 'inactivo'::character varying])::text[]))),
@@ -147,9 +147,9 @@ CREATE TABLE residente_vivienda (
     fecha_hasta DATE,
     motivo TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT chk_residente_estado CHECK (estado IN ('activo','inactivo')),
     CONSTRAINT chk_residente_activo_sin_fecha_hasta
         CHECK (estado <> 'activo' OR fecha_hasta IS NULL),
@@ -175,9 +175,9 @@ CREATE TABLE miembro_vivienda (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT chk_miembro_vivienda_estado CHECK (estado IN ('activo','inactivo')),
     CONSTRAINT chk_miembro_vivienda_parentesco CHECK (
         parentesco IN ('padre','madre','esposo','esposa','hijo','hija','otro')
@@ -215,9 +215,9 @@ CREATE TABLE cuenta (
     motivo_eliminado TEXT,
     ultimo_login TIMESTAMP,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT chk_cuenta_estado CHECK (estado IN ('activo','inactivo')),
     CONSTRAINT chk_cuenta_eliminado_estado
         CHECK (eliminado = FALSE OR estado = 'inactivo')
@@ -234,9 +234,9 @@ CREATE TABLE guardia (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT chk_guardia_estado CHECK (estado IN ('activo','inactivo')),
     CONSTRAINT chk_guardia_eliminado_estado
         CHECK (eliminado = FALSE OR estado = 'inactivo')
@@ -256,9 +256,9 @@ CREATE TABLE admin (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT chk_guardia_estado CHECK (estado IN ('activo','inactivo')),
     CONSTRAINT chk_guardia_eliminado_estado
         CHECK (eliminado = FALSE OR estado = 'inactivo')
@@ -280,9 +280,9 @@ CREATE TABLE evento_cuenta (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT chk_evento_cuenta_tipo CHECK (
         tipo_evento IN (
             'login_exitoso','login_fallido','logout','sesion_expirada',
@@ -307,9 +307,9 @@ CREATE TABLE vehiculo (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT chk_vehiculo_estado CHECK (estado IN ('activo','inactivo')),
     CONSTRAINT chk_vehiculo_eliminado_estado
         CHECK (eliminado = FALSE OR estado = 'inactivo')
@@ -327,9 +327,9 @@ CREATE TABLE visita (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20)
+    usuario_actualizado VARCHAR(64)
 );
 
 -- =====================================================
@@ -353,9 +353,9 @@ CREATE TABLE acceso (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT chk_acceso_tipo CHECK (
         tipo IN (
             'qr_residente','qr_visita','visita_sin_qr',
@@ -385,9 +385,9 @@ CREATE TABLE autorizacion_telefonica (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT chk_respuesta_tel CHECK (
         respuesta IN (
             'aceptado','rechazado','sin_respuesta',
@@ -410,9 +410,9 @@ CREATE TABLE autorizacion_codigo (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT chk_estado_codigo CHECK (
         estado IN ('vigente','expirado','usado','anulado')
     )
@@ -434,9 +434,9 @@ CREATE TABLE qr (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT chk_estado_qr CHECK (
         estado IN ('vigente','expirado','usado','anulado')
     )
@@ -453,9 +453,9 @@ CREATE TABLE notificacion (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20),
+    usuario_actualizado VARCHAR(64),
     CONSTRAINT chk_notificacion_tipo CHECK (
         tipo IN (
             'solicitud_autorizacion','ingreso_autorizado','ingreso_rechazado',
@@ -482,9 +482,9 @@ CREATE TABLE notificacion_destino (
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     motivo_eliminado TEXT,
     fecha_creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario_creado VARCHAR(20) NOT NULL,
+    usuario_creado VARCHAR(64) NOT NULL,
     fecha_actualizado TIMESTAMP,
-    usuario_actualizado VARCHAR(20)
+    usuario_actualizado VARCHAR(64)
 );
 
 -- =====================================================
